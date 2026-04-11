@@ -10,4 +10,10 @@ int main(){
     cout << p << endl;
     cout << v << endl;
     cout << p+v << endl;
+
+    // teste da multiplicação por escalar
+    cout << v*2 << endl;
+
+    Vetor u(1, 2, 3);
+    cout << v*u << endl;
 }

@@ -10,6 +10,15 @@ public:
     Vetor  operator+ (const Vetor&v) const{ 
         return Vetor(x+v.x, y+v.y, z+v.z); 
     }
+    // Vetor * escalar
+    Vetor operator* (const double&e) const {
+        return Vetor(x*e, y*e, z*e);
+    }
+    // Vetor * Vetor (produto interno/escalar)
+    Vetor operator* (const Vetor&v) const {
+        return double((x*v.getX()) + (y*v.getY()) + (z*v.getZ()));
+    }
+
     // cout << Vetor
     friend std::ostream& operator<<(std::ostream& os, const Vetor &v){ 
         return os << "(" << v.x << ", " << v.y << ", " << v.z << ")T"; 
