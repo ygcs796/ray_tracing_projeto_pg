@@ -1,0 +1,32 @@
+{
+  "_comentario": "Cenário 2 — Esferas sobrepostas no mesmo eixo Z. Testa se o algoritmo escolhe corretamente a esfera mais próxima (menor t > 0). A esfera vermelha deve estar na frente, tapando parcialmente a azul.",
+
+  "globalLight": [0.1, 0.1, 0.1],
+
+  "materials": {
+    "fundo":    { "color": [0.2, 0.2, 0.2], "ka": [0.2, 0.2, 0.2], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "frente":   { "color": [0.9, 0.1, 0.1], "ka": [0.9, 0.1, 0.1], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "meio":     { "color": [0.1, 0.9, 0.1], "ka": [0.1, 0.9, 0.1], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "atras":    { "color": [0.1, 0.1, 0.9], "ka": [0.1, 0.1, 0.9], "ks": [0.0, 0.0, 0.0], "ns": 10 }
+  },
+
+  "camera": {
+    "lookfrom": [0, 0, -10],
+    "lookat":   [0, 0, 0],
+    "upVector": [0, 1, 0],
+    "image_width": 600,
+    "image_height": 600,
+    "screen_distance": 1.0
+  },
+
+  "lights": [
+    { "name": "principal", "position": [0, 5, -5], "color": [1.0, 1.0, 1.0] }
+  ],
+
+  "objects": [
+    { "name": "Plano Fundo",   "type": "plane",  "point_on_plane": [0, 0, 20], "normal": [0, 0, -1], "material": "fundo" },
+    { "name": "Esfera Atras",  "type": "sphere", "center": [0.8,  0.5, 4], "radius": 1.5, "material": "atras" },
+    { "name": "Esfera Meio",   "type": "sphere", "center": [0.3,  0.0, 2], "radius": 1.2, "material": "meio" },
+    { "name": "Esfera Frente", "type": "sphere", "center": [-0.3, -0.3, 0], "radius": 1.0, "material": "frente" }
+  ]
+}

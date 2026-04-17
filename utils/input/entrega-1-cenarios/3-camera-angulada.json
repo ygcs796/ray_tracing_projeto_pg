@@ -1,0 +1,34 @@
+{
+  "_comentario": "Cenário 3 — Câmera em ângulo (não mais olhando para -Z puro). Testa robustez da base ortonormal W/U/V em situações arbitrárias. A câmera está elevada e olha de cima em diagonal para uma fileira de 4 esferas alinhadas no chão.",
+
+  "globalLight": [0.1, 0.1, 0.1],
+
+  "materials": {
+    "chao":   { "color": [0.7, 0.7, 0.5], "ka": [0.7, 0.7, 0.5], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "s1":     { "color": [1.0, 0.3, 0.3], "ka": [1.0, 0.3, 0.3], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "s2":     { "color": [0.3, 1.0, 0.3], "ka": [0.3, 1.0, 0.3], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "s3":     { "color": [0.3, 0.3, 1.0], "ka": [0.3, 0.3, 1.0], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "s4":     { "color": [1.0, 1.0, 0.3], "ka": [1.0, 1.0, 0.3], "ks": [0.0, 0.0, 0.0], "ns": 10 }
+  },
+
+  "camera": {
+    "lookfrom": [6, 5, -6],
+    "lookat":   [0, 0.5, 2],
+    "upVector": [0, 1, 0],
+    "image_width": 600,
+    "image_height": 400,
+    "screen_distance": 5.0
+  },
+
+  "lights": [
+    { "name": "principal", "position": [10, 10, -10], "color": [1.0, 1.0, 1.0] }
+  ],
+
+  "objects": [
+    { "name": "Chao",       "type": "plane",  "point_on_plane": [0, 0, 0],  "normal": [0, 1, 0], "material": "chao" },
+    { "name": "Esfera 1",   "type": "sphere", "center": [-3, 0.8, 0],       "radius": 0.8, "material": "s1" },
+    { "name": "Esfera 2",   "type": "sphere", "center": [-1, 0.8, 1.3],     "radius": 0.8, "material": "s2" },
+    { "name": "Esfera 3",   "type": "sphere", "center": [1,  0.8, 2.6],     "radius": 0.8, "material": "s3" },
+    { "name": "Esfera 4",   "type": "sphere", "center": [3,  0.8, 3.9],     "radius": 0.8, "material": "s4" }
+  ]
+}
