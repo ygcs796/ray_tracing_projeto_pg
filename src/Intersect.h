@@ -2,9 +2,9 @@
 #define INTERSECT_HEADER
 
 /**
- * Funções de interseção raio-objeto para a Entrega 1.
+ * Funções de interseção raio-objeto.
  *
- * Escopo: esferas e planos apenas. Malhas (mesh) são tratadas na Entrega 2.
+ * Escopo: esferas e planos apenas.
  *
  * Convenção: retornam std::optional<double> contendo o parâmetro t > ε
  * do ponto de interseção mais próximo, ou std::nullopt se não há interseção válida.

@@ -14,7 +14,7 @@
  * A base ortonormal (W, U, V) é calculada no construtor e usada por generateRay(i, j)
  * para mapear cada pixel da imagem a um ponto no mundo e construir um raio a partir de C.
  *
- * Convenção da base (ajustada após validação visual do Cornell Box):
+ * Convenção da base:
  *   W = normalize(C - M)     → aponta "para trás" da câmera
  *   U = normalize(W × Vup)   → aponta para a direita
  *   V = W × U                → aponta para cima na base da câmera
@@ -87,7 +87,7 @@ public:
         return Ray(C, direction);
     }
 
-    // ---------- Getters (úteis para debug) ----------
+    // ---------- Getters ----------
     Ponto getC() const { return C; }
     Vetor getW() const { return W; }
     Vetor getU() const { return U; }
