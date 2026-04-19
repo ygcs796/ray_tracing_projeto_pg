@@ -158,6 +158,7 @@ inline std::optional<double> intersectPlane(const Ray& ray,
 
     double intersectionParameter = solvePlaneParameter(ray, pointOnPlane, planeNormal, denominator);
 
+    // tMin
     if (intersectionParameter > INTERSECT_EPSILON) return intersectionParameter;
     return std::nullopt;  // plano atrás da origem
 }
