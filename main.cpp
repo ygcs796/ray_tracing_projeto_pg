@@ -1,21 +1,11 @@
 /**
- * main.cpp — Entrega 1 (Ray-Caster Básico)
- *
- * Lê uma cena JSON, lança raios primários da câmera para cada pixel,
- * testa interseção com os objetos (esferas e planos) e pinta cada pixel
- * com a cor difusa (kd) do objeto mais próximo atingido.
- *
- * Sem iluminação, sombras ou recursão — apenas ray-casting bruto.
- *
- * Uso:
- *     g++ -std=c++17 -O2 main.cpp -o raytracer
- *     ./raytracer > imagem.ppm
- *     python utils/convert_ppm.py imagem.ppm imagem.png
- *
- * O caminho da cena pode ser passado como argumento; se omitido, usa sampleScene.json.
+ * Lê uma cena JSON, lança um raio primário da câmera para cada pixel, testa
+ * interseção com os objetos (esferas e planos) e pinta o pixel com a cor
+ * difusa (kd) do objeto mais próximo atingido. Sem iluminação, sombras ou
+ * reflexões — apenas ray-casting bruto.
  */
 
-#include <iostream>
+ #include <iostream>
 #include <limits>
 #include <algorithm>
 #include <string>
@@ -24,14 +14,18 @@
 #include "src/Intersect.h"
 #include "utils/Scene/sceneParser.cpp"
 
-/** Converte um componente de cor em [0,1] para [0,255] com clamping. */
+/**
+ * Converte componente de cor [0.0, 1.0] para inteiro [0, 255] com clamp.
+ * Cores em ColorData estão em [0,1]; PPM exige inteiros em [0,255].
+ * O clamp protege contra entradas ligeiramente fora do intervalo.
+ */
 static int toByte(double c) {
     int v = static_cast<int>(c * 255.0);
     return std::clamp(v, 0, 255);
 }
 
 int main(int argc, char** argv) {
-    // Cena default = sampleScene (Cornell Box)
+    // Argumento opcional = caminho do JSON. Default: sampleScene.json.
     std::string sceneFile = "utils/input/sampleScene.json";
     if (argc >= 2) sceneFile = argv[1];
 
@@ -43,6 +37,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    // Construtor da Camera calcula a base ortonormal W, U, V uma única vez.
     Camera camera(scene.camera);
     const int hres = scene.camera.image_width;
     const int vres = scene.camera.image_height;
@@ -50,11 +45,14 @@ int main(int argc, char** argv) {
     std::cerr << "Renderizando " << hres << "x" << vres
               << " com " << scene.objects.size() << " objetos...\n";
 
-    // Header PPM (formato P3, ASCII)
+    // Header PPM: P3 (ASCII RGB), largura, altura, valor máximo por componente.
     std::cout << "P3\n" << hres << " " << vres << "\n255\n";
 
+    // Y-externo, X-interno: ordem em que PPM espera os pixels (linha por linha,
+    // esquerda→direita, topo→base). Permite imprimir sequencialmente sem
+    // guardar a imagem toda em memória.
     for (int j = 0; j < vres; ++j) {
-        // Progresso na stderr (não polui a saída PPM que vai para stdout)
+        // Progresso em stderr. \r sobrescreve a linha anterior no terminal.
         if (j % 10 == 0 || j == vres - 1) {
             std::cerr << "\rLinha " << (j + 1) << "/" << vres << std::flush;
         }
@@ -62,7 +60,9 @@ int main(int argc, char** argv) {
         for (int i = 0; i < hres; ++i) {
             Ray ray = camera.generateRay(i, j);
 
-            // Varre todos os objetos e mantém o hit mais próximo (menor t > 0)
+            // Seleção de visibilidade: varre todos os objetos e mantém o hit
+            // mais próximo (menor t > ε). +∞ inicial garante que a primeira
+            // interseção válida sempre atualiza closest_t.
             double closest_t = std::numeric_limits<double>::infinity();
             const ObjectData* closest_obj = nullptr;
 
@@ -74,9 +74,9 @@ int main(int argc, char** argv) {
                 }
             }
 
+            // Sem hit → preto (fundo). Com hit → cor difusa (kd) do objeto.
             int r = 0, g = 0, b = 0;
             if (closest_obj != nullptr) {
-                // Cor bruta do objeto: kd (cor difusa armazenada em material.color)
                 const ColorData& c = closest_obj->material.color;
                 r = toByte(c.r);
                 g = toByte(c.g);

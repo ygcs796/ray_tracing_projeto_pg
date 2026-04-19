@@ -4,26 +4,24 @@
 /**
  * Câmera virtual com base ortonormal e geração de raios primários.
  *
- * A câmera é construída a partir de CameraData (carregado do JSON da cena):
- *   - C   = lookfrom (posição no mundo)
- *   - M   = lookat (ponto para onde aponta)
- *   - Vup = vetor "para cima"
- *   - d   = screen_distance (distância da tela)
- *   - hres, vres = resolução em pixels
+ * Dados (de CameraData, carregado do JSON):
+ *   C   = lookfrom         posição da câmera no mundo
+ *   M   = lookat           ponto de mira
+ *   Vup = up_vector        "para cima" subjetivo (fixa a rotação em torno do eixo de mira)
+ *   d   = screen_distance  distância câmera → tela (d pequeno = FOV largo; d grande = estreito)
+ *   hres, vres             resolução em pixels
  *
- * A base ortonormal (W, U, V) é calculada no construtor e usada por generateRay(i, j)
- * para mapear cada pixel da imagem a um ponto no mundo e construir um raio a partir de C.
+ * Base ortonormal (W, U, V) calculada uma única vez no construtor. Os três
+ * vetores são unitários e perpendiculares entre si — sistema de coordenadas
+ * próprio da câmera:
+ *   W = normalize(C - M)     → "para trás" da câmera
+ *   U = normalize(W × Vup)   → "para a direita"
+ *   V = U × W                → "para cima"
  *
- * Convenção da base:
- *   W = normalize(C - M)     → aponta "para trás" da câmera
- *   U = normalize(W × Vup)   → aponta para a direita
- *   V = W × U                → aponta para cima na base da câmera
- *
- * Nota histórica:
- *   A convenção literal das anotações (U = Vup × W) gera imagem espelhada horizontalmente
- *   para cenas em que a câmera olha para -Z (como sampleScene.json). Invertemos para
- *   U = W × Vup de modo que a parede vermelha (x=0) apareça à esquerda e a verde (x=555)
- *   à direita, como esperado visualmente.
+ * Nota 16/04/2026: a ordem do cross (W × Vup e U × W) foi invertida em relação
+ * à convenção literal das anotações da disciplina (Vup × W, W × U), que gera
+ * imagem espelhada horizontalmente em cenas olhando para -Z. Com a ordem atual,
+ * a parede vermelha do Cornell Box aparece à esquerda e a verde à direita.
  */
 
 #include <cmath>
@@ -34,43 +32,37 @@
 
 class Camera {
 public:
-    /**
-     * Constrói a câmera a partir dos dados da cena.
-     * Calcula a base ortonormal (W, U, V) uma única vez.
-     *
-     * @param data configuração da câmera carregada do JSON
-     */
+    /** Constrói a câmera e calcula a base ortonormal (W, U, V). */
     Camera(const CameraData& data)
         : C(data.lookfrom),
           d(data.screen_distance),
           hres(data.image_width),
           vres(data.image_height)
     {
-        // W aponta "para trás" da câmera (convenção: oposto à direção de olhar)
+        // (C - M) tem magnitude arbitrária, precisa normalize.
         W = (C - data.lookat).normalize();
 
-        // U aponta para a direita: W × Vup (invertido em relação à convenção literal
-        // das anotações para evitar espelhamento horizontal em cenas olhando para -Z)
+        // Vup pode não ser unitário e pode não ser perpendicular a W,
+        // então o cross não sai unitário de fábrica → normalize.
         U = W.cross(data.upVector).normalize();
 
-        // V aponta para cima: U × W (ordem ajustada junto com U para preservar orientação).
-        // Com U = W × Vup, temos V = U × W → vetor unitário apontando no mesmo sentido de Vup.
+        // U e W já são unitários e perpendiculares (U = W × Vup é ⊥ a W),
+        // então |U × W| = 1 automaticamente → dispensa normalize.
         V = U.cross(W);
     }
 
     /**
-     * Gera o raio primário que parte da câmera e passa pelo centro do pixel (i, j).
+     * Gera o raio primário que parte de C e passa pelo centro do pixel (i, j).
      *
-     * Tela virtual: largura normalizada = 1, dividida em hres pixels de tamanho 1/hres.
-     * Centro da tela: screen_center = C - d * W (à frente da câmera, a distância d).
-     * O pixel (i, j) é mapeado para um ponto no mundo por combinação linear de U e V
-     * a partir do centro da tela, com offset de +0.5 para amostrar no centro do pixel.
+     * Tela virtual: largura 1 (unidade de mundo), perpendicular a W, a distância
+     * d à frente de C (centro em C - d·W), dividida em hres × vres pixels.
      *
-     *     u_offset = pixel_size * (i - hres/2 + 0.5)      (coluna, esquerda→direita)
-     *     v_offset = pixel_size * (vres/2 - j - 0.5)      (linha, top-to-bottom)
+     * Os offsets (u_offset, v_offset) posicionam o raio no centro do pixel:
+     *   - `+0.5` / `-0.5` amostram o centro do pixel, não a borda.
+     *   - `vres/2 - j` inverte o eixo vertical (PPM cresce para baixo, V aponta para cima).
      *
-     * @param i coluna do pixel (0..hres-1)
-     * @param j linha do pixel (0..vres-1, 0 = topo)
+     * @param i coluna do pixel (0 .. hres-1)
+     * @param j linha do pixel (0 .. vres-1, 0 = topo)
      * @return  raio com origem em C e direção unitária
      */
     Ray generateRay(int i, int j) const {
@@ -79,15 +71,14 @@ public:
         double u_offset = pixel_size * (i - hres / 2.0 + 0.5);
         double v_offset = pixel_size * (vres / 2.0 - j - 0.5);
 
-        // Direção: da câmera até o ponto do pixel na tela.
-        // pixel_world = C + U*u_offset + V*v_offset - d*W
-        // direction   = pixel_world - C = U*u_offset + V*v_offset - d*W
+        // Direção: do C até o ponto do pixel na tela.
+        // pixel_world = C + U·u_offset + V·v_offset - d·W
+        // direction   = pixel_world - C = U·u_offset + V·v_offset - d·W
         Vetor direction = (U * u_offset + V * v_offset - W * d).normalize();
 
         return Ray(C, direction);
     }
 
-    // ---------- Getters ----------
     Ponto getC() const { return C; }
     Vetor getW() const { return W; }
     Vetor getU() const { return U; }

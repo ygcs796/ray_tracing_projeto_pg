@@ -2,10 +2,13 @@
 #define VETORHEADER
 
 /**
- * Vetor 3D em R³ com operações de álgebra linear.
+ * Vetor 3D em R³. Representa direção + magnitude (sem posição fixa).
  *
- * Usa double para todas as coordenadas para manter coerência numérica no projeto.
- * Esta classe NÃO depende de Ponto (Ponto.h é que inclui Vetor.h).
+ * Separado da classe Ponto para impor semântica geométrica via tipos:
+ *   Vetor + Vetor   → Vetor
+ *   Vetor · Vetor   → número (dot)
+ *   Vetor × Vetor   → Vetor (cross)
+ *   Vetor * escalar → Vetor
  */
 
 #include <iostream>
@@ -16,29 +19,27 @@ class Vetor {
 public:
     Vetor(double x = 0, double y = 0, double z = 0) : x(x), y(y), z(z) {}
 
-    // ---------- Operadores aritméticos ----------
-
-    /** Vetor + Vetor (soma componente a componente). */
+    /** Soma componente a componente. */
     Vetor operator+(const Vetor& v) const {
         return Vetor(x + v.x, y + v.y, z + v.z);
     }
 
-    /** Vetor - Vetor (subtração componente a componente). */
+    /** Subtração componente a componente. Não comutativa: a-b ≠ b-a. */
     Vetor operator-(const Vetor& v) const {
         return Vetor(x - v.x, y - v.y, z - v.z);
     }
 
-    /** -Vetor (negação unária). */
+    /** Negação: inverte o sentido, mantém direção e magnitude. */
     Vetor operator-() const {
         return Vetor(-x, -y, -z);
     }
 
-    /** Vetor * escalar (multiplicação por escalar). */
+    /** Escala o vetor mantendo a direção. */
     Vetor operator*(double e) const {
         return Vetor(x * e, y * e, z * e);
     }
 
-    /** Vetor / escalar. Lança exceção se o escalar for zero. */
+    /** Divisão por escalar. Lança exceção se o escalar for zero. */
     Vetor operator/(double e) const {
         if (e == 0.0) {
             throw std::runtime_error("Divisão de Vetor por zero");
@@ -46,30 +47,27 @@ public:
         return Vetor(x / e, y / e, z / e);
     }
 
-    // ---------- Produtos ----------
-
     /**
-     * Produto escalar (dot product).
-     * Representa o cosseno do ângulo entre os vetores multiplicado pelas magnitudes:
-     *     u · v = |u| |v| cos θ
+     * Produto escalar (dot). Retorna NÚMERO, não vetor.
      *
-     * @param v vetor à direita
-     * @return  resultado escalar
+     * Interpretação: u · v = |u| |v| cos(θ).
+     * Com vetores unitários, u · v = cos(θ) diretamente.
+     *   > 0 → ângulo agudo; = 0 → perpendiculares; < 0 → ângulo obtuso.
+     *
+     * Usado em: interseção raio-esfera (3 dots para a quadrática),
+     * interseção raio-plano (2 dots para o t).
      */
     double dot(const Vetor& v) const {
         return x * v.x + y * v.y + z * v.z;
     }
 
     /**
-     * Produto vetorial (cross product).
-     * Retorna um vetor perpendicular ao plano formado por this e v, seguindo a regra da mão direita.
+     * Produto vetorial (cross). Retorna vetor perpendicular a this e v.
      *
-     *     u × v = ( u.y*v.z - u.z*v.y,
-     *              u.z*v.x - u.x*v.z,
-     *              u.x*v.y - u.y*v.x )
+     * Anti-comutativo: a × b = -(b × a). Trocar a ordem inverte o sinal.
+     * Se a e b são unitários e perpendiculares, o resultado já é unitário.
      *
-     * @param v vetor à direita
-     * @return  vetor perpendicular
+     * Usado em: construção da base ortonormal da câmera (U = W × Vup; V = U × W).
      */
     Vetor cross(const Vetor& v) const {
         return Vetor(
@@ -79,16 +77,17 @@ public:
         );
     }
 
-    // ---------- Magnitude e normalização ----------
-
     /** Comprimento euclidiano: sqrt(x² + y² + z²). */
     double magnitude() const {
         return std::sqrt(x * x + y * y + z * z);
     }
 
     /**
-     * Retorna uma versão unitária do vetor (mesma direção, magnitude 1).
-     * Guarda contra vetor nulo: retorna Vetor(0,0,0) se magnitude ≈ 0.
+     * Versão unitária do vetor (mesma direção, magnitude 1).
+     *
+     * Necessário para que o parâmetro t de um raio represente distância em
+     * unidades de mundo. Guarda contra vetor nulo: retorna (0,0,0) se
+     * magnitude ≈ 0 (evita divisão por zero / NaN).
      */
     Vetor normalize() const {
         double m = magnitude();
@@ -98,26 +97,18 @@ public:
         return Vetor(x / m, y / m, z / m);
     }
 
-    // ---------- Impressão ----------
-
     friend std::ostream& operator<<(std::ostream& os, const Vetor& v) {
         return os << "(" << v.x << ", " << v.y << ", " << v.z << ")T";
     }
-
-    // ---------- Getters ----------
 
     double getX() const { return x; }
     double getY() const { return y; }
     double getZ() const { return z; }
 
-    // Campos públicos para acesso direto por classes colaboradoras (Ponto, Camera, etc.)
     double x, y, z;
 };
 
-/**
- * Permite a sintaxe "escalar * Vetor" (além de "Vetor * escalar").
- * Delega para o operador* da classe.
- */
+/** Permite sintaxe "escalar * Vetor" (além de "Vetor * escalar"). */
 inline Vetor operator*(double e, const Vetor& v) {
     return v * e;
 }

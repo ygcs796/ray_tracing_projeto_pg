@@ -4,9 +4,14 @@
 /**
  * Raio paramétrico P(t) = origin + t * direction.
  *
- * Convenção do projeto:
- *  - direction deve estar normalizada (unitário) para que t represente distância em unidades de mundo
- *  - t > 0 aponta para frente do raio; t < 0 é atrás da origem
+ * Representa uma semi-reta que parte de `origin` na direção `direction`.
+ * O parâmetro t > 0 "anda" ao longo do raio; t < 0 seria atrás da origem
+ * (não usamos — raios não andam para trás).
+ *
+ * Convenção do projeto: `direction` deve estar normalizada. Com |D| = 1,
+ * o valor de t representa distância em unidades de mundo, o que torna
+ * comparações entre raios consistentes. O construtor NÃO normaliza
+ * automaticamente (quem chama é responsável — ver Camera::generateRay).
  */
 
 #include "Ponto.h"
@@ -18,10 +23,7 @@ struct Ray {
 
     Ray(const Ponto& o, const Vetor& d) : origin(o), direction(d) {}
 
-    /**
-     * Retorna o ponto P(t) sobre o raio a uma distância t da origem.
-     * @param t parâmetro >= 0 (em unidades de mundo se direction é unitário)
-     */
+    /** Retorna o ponto sobre o raio a distância t da origem. */
     Ponto at(double t) const {
         return origin + direction * t;
     }

@@ -2,14 +2,13 @@
 #define PONTOHEADER
 
 /**
- * Ponto 3D em R³.
+ * Ponto 3D em R³. Representa uma posição no espaço.
  *
- * Distinção semântica: Ponto representa uma posição no espaço;
- * Vetor representa uma direção/deslocamento. Operações que
- * misturam os dois preservam essa semântica:
- *     Ponto + Vetor  → Ponto  (translada o ponto)
- *     Ponto - Vetor  → Ponto  (translada no sentido oposto)
- *     Ponto - Ponto  → Vetor  (deslocamento entre pontos)
+ * Separado de Vetor para impor semântica geométrica via tipos:
+ *   Ponto + Vetor → Ponto  (translação)
+ *   Ponto - Vetor → Ponto  (translação oposta)
+ *   Ponto - Ponto → Vetor  (deslocamento do segundo até o primeiro)
+ *   Ponto + Ponto → não existe (sem sentido geométrico; o compilador rejeita)
  */
 
 #include <iostream>
@@ -19,17 +18,20 @@ class Ponto {
 public:
     Ponto(double x = 0, double y = 0, double z = 0) : x(x), y(y), z(z) {}
 
-    /** Ponto + Vetor → Ponto (translação). */
+    /** Translação: parte de P, anda na direção v, chega numa nova posição. */
     Ponto operator+(const Vetor& v) const {
         return Ponto(x + v.getX(), y + v.getY(), z + v.getZ());
     }
 
-    /** Ponto - Vetor → Ponto (translação no sentido oposto). */
+    /** Translação no sentido oposto. Usado, por exemplo, em screen_center = C - d·W. */
     Ponto operator-(const Vetor& v) const {
         return Ponto(x - v.getX(), y - v.getY(), z - v.getZ());
     }
 
-    /** Ponto - Ponto → Vetor (deslocamento do segundo até o primeiro). */
+    /**
+     * Deslocamento entre pontos: vetor que sai de `a` e chega em `this`.
+     * Usos: W = (C - lookat).normalize(); OC = ray.origin - sphere.center.
+     */
     Vetor operator-(const Ponto& a) const {
         return Vetor(x - a.x, y - a.y, z - a.z);
     }
@@ -42,7 +44,6 @@ public:
     double getY() const { return y; }
     double getZ() const { return z; }
 
-    // Campos públicos para acesso direto por classes colaboradoras
     double x, y, z;
 };
 
