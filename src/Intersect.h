@@ -23,84 +23,160 @@
 
 constexpr double INTERSECT_EPSILON = 1e-6;
 
+// ============================================================================
+// RAIO-ESFERA
+// ============================================================================
+
+/**
+ * Coeficientes da equação quadrática a·t² + b·t + c = 0 obtida ao substituir
+ * P(t) = O + t·D na equação da esfera |P - C|² = r².
+ */
+struct SphereQuadratic {
+    double aCoefficient;   // a = D · D
+    double bCoefficient;   // b = 2 (D · OC), com OC = O - C
+    double cCoefficient;   // c = OC · OC - r²
+};
+
+/**
+ * Monta os coeficientes a, b, c da quadrática para uma interseção raio-esfera.
+ *
+ * A quadrática sai de substituir o raio P(t) = O + t·D na equação da esfera
+ * |P - C|² = r² e expandir o dot product. O vetor `originRelativeToCenter`
+ * (OC = O - C) aparece em todos os três coeficientes e por isso é pré-calculado.
+ *
+ * @param ray           raio sendo testado
+ * @param sphereCenter  centro da esfera (C)
+ * @param sphereRadius  raio da esfera (r)
+ * @return              coeficientes (a, b, c) prontos para Bhaskara
+ */
+inline SphereQuadratic buildSphereQuadratic(const Ray& ray,
+                                            const Ponto& sphereCenter,
+                                            double sphereRadius) {
+    Vetor originRelativeToCenter = ray.origin - sphereCenter;  // OC = O - C
+
+    return SphereQuadratic {
+        ray.direction.dot(ray.direction),                                           // a = D · D
+        2.0 * ray.direction.dot(originRelativeToCenter),                            // b = 2(D · OC)
+        originRelativeToCenter.dot(originRelativeToCenter) - sphereRadius * sphereRadius  // c = OC·OC - r²
+    };
+}
+
+/** Discriminante Δ = b² - 4ac da quadrática. */
+inline double sphereDiscriminant(const SphereQuadratic& quadratic) {
+    return quadratic.bCoefficient * quadratic.bCoefficient
+         - 4.0 * quadratic.aCoefficient * quadratic.cCoefficient;
+}
+
+/**
+ * Escolhe a menor raiz positiva (> ε) da quadrática.
+ * - Primeiro tenta a raiz de entrada (nearRoot). Se > ε, é o ponto de entrada.
+ * - Se nearRoot ≤ ε mas farRoot > ε, a origem está dentro da esfera e retornamos
+ *   a raiz de saída (farRoot).
+ * - Caso contrário, ambas as raízes estão atrás da origem → std::nullopt.
+ *
+ * Assume discriminante ≥ 0 (deve ser verificado antes).
+ */
+inline std::optional<double> pickNearestPositiveRoot(const SphereQuadratic& quadratic,
+                                                     double discriminant) {
+    double sqrtDiscriminant = std::sqrt(discriminant);
+    double twiceA = 2.0 * quadratic.aCoefficient;
+
+    double nearRoot = (-quadratic.bCoefficient - sqrtDiscriminant) / twiceA;
+    double farRoot  = (-quadratic.bCoefficient + sqrtDiscriminant) / twiceA;
+
+    if (nearRoot > INTERSECT_EPSILON) return nearRoot;  // ponto de entrada
+    if (farRoot  > INTERSECT_EPSILON) return farRoot;   // origem dentro da esfera
+    return std::nullopt;                                // esfera atrás da origem
+}
+
 /**
  * Interseção raio-esfera.
  *
- * Substituir P(t) = O + t·D na equação da esfera |P - C|² = r² gera uma
- * equação quadrática em t:
- *     a·t² + b·t + c = 0
- *   onde:
- *     a = D · D
- *     b = 2(D · OC),   com OC = O - C
- *     c = OC·OC - r²
- *
- * O discriminante Δ = b² - 4ac indica:
+ * Substituir P(t) = O + t·D na equação |P - C|² = r² gera uma quadrática em t.
+ * O discriminante Δ decide o caso geométrico:
  *     Δ < 0 → raio erra a esfera           → std::nullopt
- *     Δ = 0 → raio tangencia               → 1 solução (raiz dupla)
+ *     Δ = 0 → raio tangencia               → 1 solução
  *     Δ > 0 → raio atravessa               → 2 soluções (entrada e saída)
  *
- * Retornamos t1 (raiz menor) se > ε — o ponto de entrada. Se t1 ≤ ε mas
- * t2 > ε, usamos t2 (caso raro: origem dentro da esfera, raio sai pela
- * parede oposta).
- *
- * O teste `disc < 0` DEVE vir antes do sqrt: √(negativo) retorna NaN e
- * contamina todas as contas subsequentes.
+ * √(negativo) retorna NaN — o teste de Δ < 0 DEVE vir antes do sqrt.
  */
 inline std::optional<double> intersectSphere(const Ray& ray,
-                                             const Ponto& center,
-                                             double radius) {
-    Vetor OC = ray.origin - center;                // vetor de C até O
+                                             const Ponto& sphereCenter,
+                                             double sphereRadius) {
+    SphereQuadratic quadratic = buildSphereQuadratic(ray, sphereCenter, sphereRadius);
+    double discriminant = sphereDiscriminant(quadratic);
 
-    double a = ray.direction.dot(ray.direction);   // a = D · D
-    double b = 2.0 * ray.direction.dot(OC);        // b = 2(D · OC)
-    double c = OC.dot(OC) - radius * radius;       // c = OC·OC - r²
-
-    double disc = b * b - 4.0 * a * c;             // Δ = b² - 4ac
-    if (disc < 0.0) {
+    if (discriminant < 0.0) {
         return std::nullopt;  // raio não toca a esfera
     }
+    return pickNearestPositiveRoot(quadratic, discriminant);
+}
 
-    double sq = std::sqrt(disc);
-    double t1 = (-b - sq) / (2.0 * a);  // raiz menor (entrada)
-    double t2 = (-b + sq) / (2.0 * a);  // raiz maior (saída)
+// ============================================================================
+// RAIO-PLANO
+// ============================================================================
 
-    if (t1 > INTERSECT_EPSILON) return t1;
-    if (t2 > INTERSECT_EPSILON) return t2;  // origem dentro da esfera
-    return std::nullopt;                    // esfera inteira atrás da origem
+/**
+ * Resolve t na equação linear obtida ao substituir P(t) = O + t·D em
+ * (P - Pp) · N = 0:
+ *     t = ((Pp - O) · N) / (D · N)
+ *
+ * Pré-requisito: o chamador já verificou que o raio NÃO é paralelo ao plano
+ * (denominador D·N ≠ 0). Passar um denominador ≈ 0 causa divisão instável.
+ */
+inline double solvePlaneParameter(const Ray& ray,
+                                  const Ponto& pointOnPlane,
+                                  const Vetor& planeNormal,
+                                  double denominator) {
+    Vetor originToPlanePoint = pointOnPlane - ray.origin;
+    return planeNormal.dot(originToPlanePoint) / denominator;
 }
 
 /**
  * Interseção raio-plano.
  *
- * Plano definido por um ponto Pp e normal N: um ponto P pertence ao plano
- * se (P - Pp) · N = 0. Substituindo P = O + t·D e isolando t:
- *
- *     t = ((Pp - O) · N) / (D · N)
- *
- * Equação linear (uma raiz; mais simples e rápida que a esfera — sem sqrt).
+ * Equação linear (uma raiz; sem sqrt, mais rápida que a esfera).
  *
  * Casos especiais:
- *   D · N ≈ 0 → D perpendicular a N → raio paralelo ao plano → std::nullopt.
- *   t ≤ ε    → plano atrás da origem → std::nullopt.
+ *   D · N ≈ 0 → raio paralelo ao plano → std::nullopt.
+ *   t ≤ ε    → plano atrás da origem  → std::nullopt.
  *
- * A normal N não precisa ser unitária: aparece em cima e embaixo da divisão,
- * um fator de escala se cancela e o t final é o mesmo.
+ * A normal não precisa ser unitária: um fator de escala se cancela na divisão.
  */
 inline std::optional<double> intersectPlane(const Ray& ray,
                                             const Ponto& pointOnPlane,
-                                            const Vetor& normal) {
-    double denom = normal.dot(ray.direction);  // D · N
+                                            const Vetor& planeNormal) {
+    double denominator = planeNormal.dot(ray.direction);  // D · N
 
-    // std::abs: denom pode ser negativo; queremos "próximo de zero" em ambos sinais.
-    if (std::abs(denom) < INTERSECT_EPSILON) {
+    // std::abs: denominator pode ser negativo; queremos "próximo de zero" em ambos sinais.
+    if (std::abs(denominator) < INTERSECT_EPSILON) {
         return std::nullopt;  // raio paralelo ao plano
     }
 
-    Vetor diff = pointOnPlane - ray.origin;    // Pp - O
-    double t = normal.dot(diff) / denom;       // t = (N · (Pp - O)) / (N · D)
+    double intersectionParameter = solvePlaneParameter(ray, pointOnPlane, planeNormal, denominator);
 
-    if (t > INTERSECT_EPSILON) return t;
-    return std::nullopt;                       // plano atrás da origem
+    if (intersectionParameter > INTERSECT_EPSILON) return intersectionParameter;
+    return std::nullopt;  // plano atrás da origem
+}
+
+// ============================================================================
+// DISPATCHER
+// ============================================================================
+
+/** Extrai os parâmetros da esfera e delega para intersectSphere. */
+inline std::optional<double> intersectSphereObject(const Ray& ray, ObjectData& obj) {
+    Ponto  sphereCenter = obj.getPonto("center");
+    double sphereRadius = obj.getNum("radius");
+    return intersectSphere(ray, sphereCenter, sphereRadius);
+}
+
+/** Extrai os parâmetros do plano e delega para intersectPlane. */
+inline std::optional<double> intersectPlaneObject(const Ray& ray, ObjectData& obj) {
+    // relativePos é preenchido pelo parser a partir de
+    // point_on_plane / position / origin (ver isPositionKey em sceneParser.cpp).
+    Ponto pointOnPlane = obj.relativePos;
+    Vetor planeNormal  = obj.getVetor("normal");
+    return intersectPlane(ray, pointOnPlane, planeNormal);
 }
 
 /**
@@ -108,18 +184,8 @@ inline std::optional<double> intersectPlane(const Ray& ray,
  * Tipos suportados: "sphere" e "plane". Outros tipos retornam std::nullopt.
  */
 inline std::optional<double> intersect(const Ray& ray, ObjectData& obj) {
-    if (obj.objType == "sphere") {
-        Ponto center = obj.getPonto("center");
-        double radius = obj.getNum("radius");
-        return intersectSphere(ray, center, radius);
-    }
-    if (obj.objType == "plane") {
-        // relativePos é preenchido pelo parser a partir de
-        // point_on_plane / position / origin (ver isPositionKey em sceneParser.cpp).
-        Ponto pointOnPlane = obj.relativePos;
-        Vetor normal = obj.getVetor("normal");
-        return intersectPlane(ray, pointOnPlane, normal);
-    }
+    if (obj.objType == "sphere") return intersectSphereObject(ray, obj);
+    if (obj.objType == "plane")  return intersectPlaneObject(ray, obj);
     return std::nullopt;
 }
 
