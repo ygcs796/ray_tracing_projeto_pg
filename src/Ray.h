@@ -25,7 +25,7 @@ struct Ray {
 
     /** Retorna o ponto sobre o raio a distância t da origem. */
     Ponto at(double t) const {
-        return origin + direction * t;
+        return origin + direction * t; // P(t) = O + t * D
     }
 };
 
