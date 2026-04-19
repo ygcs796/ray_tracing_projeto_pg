@@ -138,6 +138,7 @@ inline double solvePlaneParameter(const Ray& ray,
 
 /**
  * Interseção raio-plano.
+ * (P - Pp) · N = 0
  *
  * Casos especiais:
  *   D · N ≈ 0 → raio paralelo ao plano → std::nullopt.
