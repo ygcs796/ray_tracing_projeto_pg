@@ -67,7 +67,8 @@ private:
      *   up       aponta para cima (perpendicular a right e backward).
      */
     void computeOrthonormalBasis(const Ponto& targetPoint, const Vetor& upVector) {
-        backward = (cameraPosition - targetPoint).normalize();
+        // (C - M) -> Produz um vetor que sai do alvo e chega na câmera
+        backward = (cameraPosition - targetPoint).normalize(); // Target Point = lookAt no JSON
         // Nota 16/04/2026: a ordem do cross foi invertida em relação à convenção literal
         // das anotações da disciplina (Vup × W, W × U), que gera imagem espelhada
         // horizontalmente em cenas olhando para -Z. Com a ordem atual, a parede vermelha

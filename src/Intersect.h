@@ -21,6 +21,7 @@
 #include "Vetor.h"
 #include "../utils/Scene/sceneSchema.hpp"
 
+// O equivalente a "> 0", mas tem cenários que é necessário por conta da precisão do double
 constexpr double INTERSECT_EPSILON = 1e-6;
 
 // ============================================================================
@@ -84,6 +85,8 @@ inline std::optional<double> pickNearestPositiveRoot(const SphereQuadratic& quad
     double nearRoot = (-quadratic.bCoefficient - sqrtDiscriminant) / twiceA;
     double farRoot  = (-quadratic.bCoefficient + sqrtDiscriminant) / twiceA;
 
+    // tMin ( tMax está na função findClosestHit - o closest_t funciona como tMax dinâmico )
+    // Otimização pro futuro, receber o tMax aqui e fazer early exit se a raiz for maior que tMax (não é o mais próximo possível).
     if (nearRoot > INTERSECT_EPSILON) return nearRoot;  // ponto de entrada
     if (farRoot  > INTERSECT_EPSILON) return farRoot;   // origem dentro da esfera
     return std::nullopt;                                // esfera atrás da origem
@@ -134,8 +137,6 @@ inline double solvePlaneParameter(const Ray& ray,
 
 /**
  * Interseção raio-plano.
- *
- * Equação linear (uma raiz; sem sqrt, mais rápida que a esfera).
  *
  * Casos especiais:
  *   D · N ≈ 0 → raio paralelo ao plano → std::nullopt.

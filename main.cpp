@@ -81,6 +81,7 @@ static void writePixel(const PixelColor& pixel) {
  * (menor t > ε). Se nenhum for atingido, hitObject == nullptr.
  */
 static ClosestHit findClosestHit(const Ray& ray, SceneData& scene) {
+    // tMax ( dinâmico )
     ClosestHit result = { nullptr, std::numeric_limits<double>::infinity() };
 
     for (auto& candidateObject : scene.objects) {
