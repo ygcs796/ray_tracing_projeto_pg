@@ -177,7 +177,15 @@ private:
 
         if (node.contains("lookfrom")) cam.lookfrom = parsePoint(node["lookfrom"], "camera.lookfrom");
         if (node.contains("lookat"))   cam.lookat   = parsePoint(node["lookat"],   "camera.lookat");
-        if (node.contains("vup"))      cam.upVector  = parseVector(node["vup"],     "camera.vup");
+
+        // Aceita qualquer uma das três grafias para o vetor "up": vup (C++ nativo),
+        // upVector (JSON/camelCase) e up_vector (Python/snake_case).
+        for (const char* key : {"vup", "upVector", "up_vector"}) {
+            if (node.contains(key)) {
+                cam.upVector = parseVector(node[key], std::string("camera.") + key);
+                break;
+            }
+        }
 
         return cam;
     }
