@@ -19,10 +19,6 @@
  *   right    = normalize(backward × upVector)            → "para a direita"
  *   up       = right × backward                          → "para cima"
  *
- * Nota 16/04/2026: a ordem do cross foi invertida em relação à convenção literal
- * das anotações da disciplina (Vup × W, W × U), que gera imagem espelhada
- * horizontalmente em cenas olhando para -Z. Com a ordem atual, a parede vermelha
- * do Cornell Box aparece à esquerda e a verde à direita.
  */
 
 #include <cmath>
@@ -72,6 +68,10 @@ private:
      */
     void computeOrthonormalBasis(const Ponto& targetPoint, const Vetor& upVector) {
         backward = (cameraPosition - targetPoint).normalize();
+        // Nota 16/04/2026: a ordem do cross foi invertida em relação à convenção literal
+        // das anotações da disciplina (Vup × W, W × U), que gera imagem espelhada
+        // horizontalmente em cenas olhando para -Z. Com a ordem atual, a parede vermelha
+        // do Cornell Box aparece à esquerda e a verde à direita.
         right    = backward.cross(upVector).normalize();
         up       = right.cross(backward);  // já unitário (right ⊥ backward, ambos unitários)
     }
