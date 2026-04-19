@@ -112,6 +112,7 @@ inline std::optional<double> intersectSphere(const Ray& ray,
     if (discriminant < 0.0) {
         return std::nullopt;  // raio não toca a esfera
     }
+    
     return pickNearestPositiveRoot(quadratic, discriminant);
 }
 
