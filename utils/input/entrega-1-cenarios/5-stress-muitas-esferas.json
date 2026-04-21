@@ -1,0 +1,81 @@
+{
+  "_comentario": "Cenário 5 — Stress test com muitas esferas em grid 5x5 sobre um plano. Testa performance e correção com muitos objetos (25 esferas + 1 plano = 26 interseções por pixel).",
+
+  "globalLight": [0.1, 0.1, 0.1],
+
+  "materials": {
+    "chao": { "color": [0.9, 0.9, 0.9], "ka": [0.9, 0.9, 0.9], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "m00": { "color": [1.0, 0.0, 0.0], "ka": [1.0, 0.0, 0.0], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "m01": { "color": [1.0, 0.5, 0.0], "ka": [1.0, 0.5, 0.0], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "m02": { "color": [1.0, 1.0, 0.0], "ka": [1.0, 1.0, 0.0], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "m03": { "color": [0.5, 1.0, 0.0], "ka": [0.5, 1.0, 0.0], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "m04": { "color": [0.0, 1.0, 0.0], "ka": [0.0, 1.0, 0.0], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "m10": { "color": [0.0, 1.0, 0.5], "ka": [0.0, 1.0, 0.5], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "m11": { "color": [0.0, 1.0, 1.0], "ka": [0.0, 1.0, 1.0], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "m12": { "color": [0.0, 0.5, 1.0], "ka": [0.0, 0.5, 1.0], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "m13": { "color": [0.0, 0.0, 1.0], "ka": [0.0, 0.0, 1.0], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "m14": { "color": [0.5, 0.0, 1.0], "ka": [0.5, 0.0, 1.0], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "m20": { "color": [1.0, 0.0, 1.0], "ka": [1.0, 0.0, 1.0], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "m21": { "color": [1.0, 0.0, 0.5], "ka": [1.0, 0.0, 0.5], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "m22": { "color": [0.8, 0.4, 0.2], "ka": [0.8, 0.4, 0.2], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "m23": { "color": [0.4, 0.8, 0.2], "ka": [0.4, 0.8, 0.2], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "m24": { "color": [0.2, 0.4, 0.8], "ka": [0.2, 0.4, 0.8], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "m30": { "color": [0.8, 0.8, 0.2], "ka": [0.8, 0.8, 0.2], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "m31": { "color": [0.2, 0.8, 0.8], "ka": [0.2, 0.8, 0.8], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "m32": { "color": [0.8, 0.2, 0.8], "ka": [0.8, 0.2, 0.8], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "m33": { "color": [0.6, 0.3, 0.0], "ka": [0.6, 0.3, 0.0], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "m34": { "color": [0.3, 0.0, 0.6], "ka": [0.3, 0.0, 0.6], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "m40": { "color": [0.0, 0.6, 0.3], "ka": [0.0, 0.6, 0.3], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "m41": { "color": [0.5, 0.5, 0.5], "ka": [0.5, 0.5, 0.5], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "m42": { "color": [0.7, 0.7, 0.7], "ka": [0.7, 0.7, 0.7], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "m43": { "color": [0.3, 0.3, 0.3], "ka": [0.3, 0.3, 0.3], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "m44": { "color": [0.1, 0.1, 0.1], "ka": [0.1, 0.1, 0.1], "ks": [0.0, 0.0, 0.0], "ns": 10 }
+  },
+
+  "camera": {
+    "lookfrom": [0, 8, -12],
+    "lookat":   [0, 1, 2],
+    "upVector": [0, 1, 0],
+    "image_width": 600,
+    "image_height": 400,
+    "screen_distance": 1.0
+  },
+
+  "lights": [
+    { "name": "principal", "position": [0, 15, -10], "color": [1.0, 1.0, 1.0] }
+  ],
+
+  "objects": [
+    { "name": "Chao", "type": "plane", "point_on_plane": [0, 0, 0], "normal": [0, 1, 0], "material": "chao" },
+
+    { "name": "s00", "type": "sphere", "center": [-4, 0.6, -4], "radius": 0.6, "material": "m00" },
+    { "name": "s01", "type": "sphere", "center": [-2, 0.6, -4], "radius": 0.6, "material": "m01" },
+    { "name": "s02", "type": "sphere", "center": [ 0, 0.6, -4], "radius": 0.6, "material": "m02" },
+    { "name": "s03", "type": "sphere", "center": [ 2, 0.6, -4], "radius": 0.6, "material": "m03" },
+    { "name": "s04", "type": "sphere", "center": [ 4, 0.6, -4], "radius": 0.6, "material": "m04" },
+
+    { "name": "s10", "type": "sphere", "center": [-4, 0.6, -2], "radius": 0.6, "material": "m10" },
+    { "name": "s11", "type": "sphere", "center": [-2, 0.6, -2], "radius": 0.6, "material": "m11" },
+    { "name": "s12", "type": "sphere", "center": [ 0, 0.6, -2], "radius": 0.6, "material": "m12" },
+    { "name": "s13", "type": "sphere", "center": [ 2, 0.6, -2], "radius": 0.6, "material": "m13" },
+    { "name": "s14", "type": "sphere", "center": [ 4, 0.6, -2], "radius": 0.6, "material": "m14" },
+
+    { "name": "s20", "type": "sphere", "center": [-4, 0.6, 0], "radius": 0.6, "material": "m20" },
+    { "name": "s21", "type": "sphere", "center": [-2, 0.6, 0], "radius": 0.6, "material": "m21" },
+    { "name": "s22", "type": "sphere", "center": [ 0, 0.6, 0], "radius": 0.6, "material": "m22" },
+    { "name": "s23", "type": "sphere", "center": [ 2, 0.6, 0], "radius": 0.6, "material": "m23" },
+    { "name": "s24", "type": "sphere", "center": [ 4, 0.6, 0], "radius": 0.6, "material": "m24" },
+
+    { "name": "s30", "type": "sphere", "center": [-4, 0.6, 2], "radius": 0.6, "material": "m30" },
+    { "name": "s31", "type": "sphere", "center": [-2, 0.6, 2], "radius": 0.6, "material": "m31" },
+    { "name": "s32", "type": "sphere", "center": [ 0, 0.6, 2], "radius": 0.6, "material": "m32" },
+    { "name": "s33", "type": "sphere", "center": [ 2, 0.6, 2], "radius": 0.6, "material": "m33" },
+    { "name": "s34", "type": "sphere", "center": [ 4, 0.6, 2], "radius": 0.6, "material": "m34" },
+
+    { "name": "s40", "type": "sphere", "center": [-4, 0.6, 4], "radius": 0.6, "material": "m40" },
+    { "name": "s41", "type": "sphere", "center": [-2, 0.6, 4], "radius": 0.6, "material": "m41" },
+    { "name": "s42", "type": "sphere", "center": [ 0, 0.6, 4], "radius": 0.6, "material": "m42" },
+    { "name": "s43", "type": "sphere", "center": [ 2, 0.6, 4], "radius": 0.6, "material": "m43" },
+    { "name": "s44", "type": "sphere", "center": [ 4, 0.6, 4], "radius": 0.6, "material": "m44" }
+  ]
+}

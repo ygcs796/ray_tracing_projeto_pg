@@ -1,0 +1,39 @@
+{
+  "_comentario": "Cenário 4 — Caixa fechada (6 planos) com uma esfera dentro. Testa raio dentro de um ambiente fechado: cada pixel deve atingir algum plano (sem fundo preto). As paredes têm cores distintas para verificar orientação das normais.",
+
+  "globalLight": [0.15, 0.15, 0.15],
+
+  "materials": {
+    "chao":    { "color": [0.5, 0.5, 0.5], "ka": [0.5, 0.5, 0.5], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "teto":    { "color": [0.9, 0.9, 0.9], "ka": [0.9, 0.9, 0.9], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "fundo":   { "color": [0.2, 0.2, 0.6], "ka": [0.2, 0.2, 0.6], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "frente":  { "color": [0.0, 0.0, 0.0], "ka": [0.0, 0.0, 0.0], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "esq":     { "color": [0.8, 0.1, 0.1], "ka": [0.8, 0.1, 0.1], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "dir":     { "color": [0.1, 0.8, 0.1], "ka": [0.1, 0.8, 0.1], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "esfera":  { "color": [0.95, 0.85, 0.2], "ka": [0.95, 0.85, 0.2], "ks": [0.0, 0.0, 0.0], "ns": 10 }
+  },
+
+  "camera": {
+    "lookfrom": [0, 3, -9],
+    "lookat":   [0, 3, 0],
+    "upVector": [0, 1, 0],
+    "image_width": 600,
+    "image_height": 600,
+    "screen_distance": 1.0
+  },
+
+  "lights": [
+    { "name": "teto", "position": [0, 5.9, 0], "color": [1.0, 1.0, 1.0] }
+  ],
+
+  "objects": [
+    { "name": "Chao",    "type": "plane", "point_on_plane": [0,  0, 0], "normal": [0,  1,  0], "material": "chao"   },
+    { "name": "Teto",    "type": "plane", "point_on_plane": [0,  6, 0], "normal": [0, -1,  0], "material": "teto"   },
+    { "name": "Fundo",   "type": "plane", "point_on_plane": [0, 0,  6], "normal": [0,  0, -1], "material": "fundo"  },
+    { "name": "Frente",  "type": "plane", "point_on_plane": [0, 0, -10], "normal": [0, 0,  1], "material": "frente" },
+    { "name": "Esquerda","type": "plane", "point_on_plane": [-4, 0, 0], "normal": [1,  0,  0], "material": "esq"    },
+    { "name": "Direita", "type": "plane", "point_on_plane": [ 4, 0, 0], "normal": [-1, 0,  0], "material": "dir"    },
+
+    { "name": "Esfera Central", "type": "sphere", "center": [0, 3, 2], "radius": 1.5, "material": "esfera" }
+  ]
+}

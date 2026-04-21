@@ -1,0 +1,32 @@
+{
+  "_comentario": "Cenário 1 — Três esferas RGB sobre um plano. Testa interseção raio-esfera com múltiplos objetos e ordenação de profundidade (a esfera azul está mais perto, vermelha no meio, verde atrás).",
+
+  "globalLight": [0.1, 0.1, 0.1],
+
+  "materials": {
+    "chao":     { "color": [0.8, 0.8, 0.8], "ka": [0.8, 0.8, 0.8], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "vermelho": { "color": [1.0, 0.0, 0.0], "ka": [1.0, 0.0, 0.0], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "verde":    { "color": [0.0, 1.0, 0.0], "ka": [0.0, 1.0, 0.0], "ks": [0.0, 0.0, 0.0], "ns": 10 },
+    "azul":     { "color": [0.0, 0.0, 1.0], "ka": [0.0, 0.0, 1.0], "ks": [0.0, 0.0, 0.0], "ns": 10 }
+  },
+
+  "camera": {
+    "lookfrom": [0, 2, -8],
+    "lookat":   [0, 1, 0],
+    "upVector": [0, 1, 0],
+    "image_width": 600,
+    "image_height": 400,
+    "screen_distance": 1.0
+  },
+
+  "lights": [
+    { "name": "principal", "position": [5, 10, -5], "color": [1.0, 1.0, 1.0] }
+  ],
+
+  "objects": [
+    { "name": "Chao",            "type": "plane",  "point_on_plane": [0, 0, 0], "normal": [0, 1, 0], "material": "chao" },
+    { "name": "Esfera Azul",     "type": "sphere", "center": [-2.5, 1, 0], "radius": 1.0, "material": "azul" },
+    { "name": "Esfera Vermelha", "type": "sphere", "center": [0,    1, 2], "radius": 1.0, "material": "vermelho" },
+    { "name": "Esfera Verde",    "type": "sphere", "center": [2.5,  1, 4], "radius": 1.0, "material": "verde" }
+  ]
+}
