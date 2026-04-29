@@ -16,9 +16,12 @@
 
 #include <optional>
 #include <cmath>
+#include <map>
+#include <limits>
 #include "Ray.h"
 #include "Ponto.h"
 #include "Vetor.h"
+#include "Mesh.h"
 #include "../utils/Scene/sceneSchema.hpp"
 
 // O equivalente a "> 0", mas tem cenários que é necessário por conta da precisão do double
@@ -164,6 +167,104 @@ inline std::optional<double> intersectPlane(const Ray& ray,
 }
 
 // ============================================================================
+// RAIO-TRIÂNGULO (Möller–Trumbore)
+// ============================================================================
+
+/**
+ * Interseção raio-triângulo via algoritmo de Möller-Trumbore.
+ *
+ * Resolve simultaneamente t e as coordenadas baricêntricas (β, γ) sem montar
+ * sistema linear 3x3 explícito. Os vetores h, q reusam parcelas comuns para
+ * substituir a eliminação gaussiana por dot/cross products diretos.
+ *
+ * Equação base: O + t·D = (1-β-γ)·v0 + β·v1 + γ·v2
+ *               D·t - (v1-v0)·β - (v2-v0)·γ = O - v0
+ *
+ * Variáveis intermediárias:
+ *   edge1 = v1 - v0
+ *   edge2 = v2 - v0
+ *   h     = D × edge2
+ *   a     = edge1 · h          (det da matriz 3x3 do sistema; |a| ≈ 0 ⇒ paralelo)
+ *   s     = O - v0
+ *   β     = (s · h) / a
+ *   q     = s × edge1
+ *   γ     = (D · q) / a
+ *   t     = (edge2 · q) / a
+ *
+ * Retorna (t, α, β, γ) com α = 1-β-γ (todas em [0,1] num hit). Para
+ * retornar apenas t (sem baricêntricas), use intersectTriangleT().
+ */
+struct TriangleHit {
+    double t;
+    double alpha, beta, gamma;
+};
+
+inline std::optional<TriangleHit> intersectTriangle(const Ray& ray,
+                                                    const Ponto& v0,
+                                                    const Ponto& v1,
+                                                    const Ponto& v2) {
+    Vetor edge1 = v1 - v0;
+    Vetor edge2 = v2 - v0;
+    Vetor h     = ray.direction.cross(edge2);
+    double a    = edge1.dot(h);
+
+    // Raio paralelo ao plano do triângulo: a ≈ 0 → divisão instável.
+    if (std::abs(a) < INTERSECT_EPSILON) return std::nullopt;
+
+    double f    = 1.0 / a;
+    Vetor s     = ray.origin - v0;
+    double beta = f * s.dot(h);
+    if (beta < 0.0 || beta > 1.0) return std::nullopt;
+
+    Vetor q     = s.cross(edge1);
+    double gamma = f * ray.direction.dot(q);
+    if (gamma < 0.0 || beta + gamma > 1.0) return std::nullopt;
+
+    double t = f * edge2.dot(q);
+    if (t <= INTERSECT_EPSILON) return std::nullopt;  // atrás da origem ou auto-interseção
+
+    return TriangleHit{ t, 1.0 - beta - gamma, beta, gamma };
+}
+
+// ============================================================================
+// RAIO-MALHA
+// ============================================================================
+
+/**
+ * Resultado de interseção contra uma malha: t do triângulo mais próximo + índice
+ * da face. A face permite, mais à frente, recuperar a normal correta na fase de
+ * sombreamento (Phong, Entrega 3+).
+ */
+struct MeshHit {
+    double t;
+    int    faceIndex;
+};
+
+/**
+ * Testa o raio contra todas as faces da malha e retorna a interseção mais próxima.
+ * Implementação O(N) por raio — sem estruturas aceleradoras (BVH/Octree). Para
+ * malhas pequenas (~12 faces, cubo) é instantâneo; para o monkey (~1000 faces)
+ * é o gargalo, ver renders/ para tempos.
+ */
+inline std::optional<MeshHit> intersectMesh(const Ray& ray, const TriangleMesh& mesh) {
+    std::optional<MeshHit> closest;
+    double closestT = std::numeric_limits<double>::infinity();
+
+    const auto& vs = mesh.getVertices();
+    const auto& fs = mesh.getFaces();
+
+    for (size_t i = 0; i < fs.size(); ++i) {
+        const TriangleFace& f = fs[i];
+        auto hit = intersectTriangle(ray, vs[f.v0], vs[f.v1], vs[f.v2]);
+        if (hit.has_value() && hit->t < closestT) {
+            closestT = hit->t;
+            closest = MeshHit{ hit->t, static_cast<int>(i) };
+        }
+    }
+    return closest;
+}
+
+// ============================================================================
 // DISPATCHER
 // ============================================================================
 
@@ -184,12 +285,37 @@ inline std::optional<double> intersectPlaneObject(const Ray& ray, ObjectData& ob
 }
 
 /**
- * Dispatcher: chama a função de interseção apropriada pelo tipo do objeto.
- * Tipos suportados: "sphere" e "plane". Outros tipos retornam std::nullopt.
+ * Mapa de malhas pré-carregadas, indexado por endereço do ObjectData.
+ *
+ * Por que ponteiro como chave: ObjectData não tem um identificador único; usar o
+ * endereço do objeto na lista da cena dá uma chave estável durante a vida do
+ * processo (a lista de objetos não é redimensionada após carregar a cena).
  */
-inline std::optional<double> intersect(const Ray& ray, ObjectData& obj) {
+using MeshLookup = std::map<const ObjectData*, const TriangleMesh*>;
+
+/** Recupera a malha pré-carregada associada a `obj` e delega para intersectMesh. */
+inline std::optional<double> intersectMeshObject(const Ray& ray,
+                                                 const ObjectData& obj,
+                                                 const MeshLookup& meshes) {
+    auto it = meshes.find(&obj);
+    if (it == meshes.end()) return std::nullopt;
+    auto hit = intersectMesh(ray, *it->second);
+    if (!hit.has_value()) return std::nullopt;
+    return hit->t;
+}
+
+/**
+ * Dispatcher: chama a função de interseção apropriada pelo tipo do objeto.
+ * Tipos suportados: "sphere", "plane", "mesh". Outros tipos retornam std::nullopt.
+ *
+ * `meshes` é o lookup de malhas pré-carregadas. Para esferas/planos é ignorado
+ * (passar mapa vazio funciona). Para "mesh", uma entrada faltando devolve nullopt.
+ */
+inline std::optional<double> intersect(const Ray& ray, ObjectData& obj,
+                                       const MeshLookup& meshes) {
     if (obj.objType == "sphere") return intersectSphereObject(ray, obj);
     if (obj.objType == "plane")  return intersectPlaneObject(ray, obj);
+    if (obj.objType == "mesh")   return intersectMeshObject(ray, obj, meshes);
     return std::nullopt;
 }
 
