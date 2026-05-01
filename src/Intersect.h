@@ -167,101 +167,146 @@ inline std::optional<double> intersectPlane(const Ray& ray,
 }
 
 // ============================================================================
-// RAIO-TRIÂNGULO (Möller–Trumbore)
+// RAIO-TRIÂNGULO  (algoritmo de Möller–Trumbore)
 // ============================================================================
 
 /**
- * Interseção raio-triângulo via algoritmo de Möller-Trumbore.
- *
- * Resolve simultaneamente t e as coordenadas baricêntricas (β, γ) sem montar
- * sistema linear 3x3 explícito. Os vetores h, q reusam parcelas comuns para
- * substituir a eliminação gaussiana por dot/cross products diretos.
- *
- * Equação base: O + t·D = (1-β-γ)·v0 + β·v1 + γ·v2
- *               D·t - (v1-v0)·β - (v2-v0)·γ = O - v0
- *
- * Variáveis intermediárias:
- *   edge1 = v1 - v0
- *   edge2 = v2 - v0
- *   h     = D × edge2
- *   a     = edge1 · h          (det da matriz 3x3 do sistema; |a| ≈ 0 ⇒ paralelo)
- *   s     = O - v0
- *   β     = (s · h) / a
- *   q     = s × edge1
- *   γ     = (D · q) / a
- *   t     = (edge2 · q) / a
- *
- * Retorna (t, α, β, γ) com α = 1-β-γ (todas em [0,1] num hit). Para
- * retornar apenas t (sem baricêntricas), use intersectTriangleT().
+ * Resultado de uma interseção raio-triângulo bem-sucedida:
+ *   - distanceAlongRay: parâmetro t > 0 do raio (distância em unidades de mundo,
+ *                       já que assumimos a direção do raio normalizada).
+ *   - alpha, beta, gamma: coordenadas baricêntricas do ponto de interseção em
+ *                         relação aos 3 vértices do triângulo.
+ *                         alpha + beta + gamma = 1 e cada uma >= 0 dentro do triângulo.
+ *                         Úteis para interpolar atributos (cor, normal) entre os
+ *                         vértices da face.
  */
 struct TriangleHit {
-    double t;
-    double alpha, beta, gamma;
+    double distanceAlongRay;
+    double alpha;
+    double beta;
+    double gamma;
 };
 
+/**
+ * Interseção raio-triângulo pelo algoritmo de Möller-Trumbore.
+ *
+ * Por que Möller-Trumbore em vez de eliminação gaussiana?
+ *   O problema "raio P(t) = O + tD intercepta o triângulo (v0,v1,v2)?" pode ser
+ *   escrito como sistema linear 3x3 nas incógnitas (t, β, γ). Eliminação gaussiana
+ *   resolveria, mas tem custo fixo (~17 operações). Möller-Trumbore explora a
+ *   estrutura específica do sistema (regra de Cramer + identidades de cross product)
+ *   para resolver com menos contas e — mais importante — permitir EARLY EXITS:
+ *   se o raio é paralelo, descartamos antes de calcular β e γ; se β já saiu fora
+ *   de [0,1], descartamos antes de calcular γ e t.
+ *
+ * Sequência geométrica:
+ *   firstEdge       = v1 - v0
+ *   secondEdge      = v2 - v0
+ *   crossDirEdge2   = D × secondEdge
+ *   determinant     = firstEdge · crossDirEdge2     (det do sistema; ≈0 ⇒ paralelo)
+ *   originMinusV0   = O - v0
+ *   beta            = (originMinusV0 · crossDirEdge2) / determinant
+ *   crossSrcEdge1   = originMinusV0 × firstEdge
+ *   gamma           = (D · crossSrcEdge1) / determinant
+ *   t               = (secondEdge · crossSrcEdge1) / determinant
+ *   alpha           = 1 - beta - gamma
+ *
+ * Cada early exit corresponde a um caso geométrico:
+ *   |determinant| < ε  → raio paralelo ao plano do triângulo
+ *   beta < 0 ou > 1    → ponto de interseção fora da aresta v0-v1
+ *   gamma < 0 ou       → ponto fora da aresta v0-v2 ou da aresta v1-v2
+ *     beta+gamma > 1
+ *   t <= ε             → triângulo atrás da origem (ou auto-interseção numérica)
+ */
 inline std::optional<TriangleHit> intersectTriangle(const Ray& ray,
-                                                    const Ponto& v0,
-                                                    const Ponto& v1,
-                                                    const Ponto& v2) {
-    Vetor edge1 = v1 - v0;
-    Vetor edge2 = v2 - v0;
-    Vetor h     = ray.direction.cross(edge2);
-    double a    = edge1.dot(h);
+                                                    const Ponto& vertexV0,
+                                                    const Ponto& vertexV1,
+                                                    const Ponto& vertexV2) {
+    Vetor firstEdgeFromV0  = vertexV1 - vertexV0;
+    Vetor secondEdgeFromV0 = vertexV2 - vertexV0;
 
-    // Raio paralelo ao plano do triângulo: a ≈ 0 → divisão instável.
-    if (std::abs(a) < INTERSECT_EPSILON) return std::nullopt;
+    // Determinante do sistema 3x3 implícito. |determinante| ≈ 0 indica que o raio
+    // é paralelo ao plano do triângulo (o sistema é singular).
+    Vetor crossOfDirAndSecondEdge = ray.direction.cross(secondEdgeFromV0);
+    double determinant            = firstEdgeFromV0.dot(crossOfDirAndSecondEdge);
+    bool rayIsParallelToTriangle  = std::abs(determinant) < INTERSECT_EPSILON;
+    if (rayIsParallelToTriangle) return std::nullopt;
 
-    double f    = 1.0 / a;
-    Vetor s     = ray.origin - v0;
-    double beta = f * s.dot(h);
-    if (beta < 0.0 || beta > 1.0) return std::nullopt;
+    double inverseDeterminant = 1.0 / determinant;
 
-    Vetor q     = s.cross(edge1);
-    double gamma = f * ray.direction.dot(q);
-    if (gamma < 0.0 || beta + gamma > 1.0) return std::nullopt;
+    // Coordenada baricêntrica beta. Geometricamente, é o "peso" do vértice v1 na
+    // combinação linear que reconstrói o ponto de interseção.
+    Vetor originMinusV0 = ray.origin - vertexV0;
+    double beta         = inverseDeterminant * originMinusV0.dot(crossOfDirAndSecondEdge);
+    bool betaIsOutsideTriangle = (beta < 0.0) || (beta > 1.0);
+    if (betaIsOutsideTriangle) return std::nullopt;
 
-    double t = f * edge2.dot(q);
-    if (t <= INTERSECT_EPSILON) return std::nullopt;  // atrás da origem ou auto-interseção
+    // Coordenada baricêntrica gamma. Peso do vértice v2 na combinação linear.
+    Vetor crossOfOriginAndFirstEdge = originMinusV0.cross(firstEdgeFromV0);
+    double gamma                    = inverseDeterminant * ray.direction.dot(crossOfOriginAndFirstEdge);
+    bool gammaIsOutsideTriangle     = (gamma < 0.0) || (beta + gamma > 1.0);
+    if (gammaIsOutsideTriangle) return std::nullopt;
 
-    return TriangleHit{ t, 1.0 - beta - gamma, beta, gamma };
+    // Distância t ao longo do raio até o ponto de interseção.
+    double distanceAlongRay = inverseDeterminant * secondEdgeFromV0.dot(crossOfOriginAndFirstEdge);
+    bool triangleIsBehindRay = distanceAlongRay <= INTERSECT_EPSILON;
+    if (triangleIsBehindRay) return std::nullopt;
+
+    double alpha = 1.0 - beta - gamma;
+    return TriangleHit{ distanceAlongRay, alpha, beta, gamma };
 }
 
 // ============================================================================
-// RAIO-MALHA
+// RAIO-MALHA  (loop sobre todos os triângulos da malha)
 // ============================================================================
 
 /**
- * Resultado de interseção contra uma malha: t do triângulo mais próximo + índice
- * da face. A face permite, mais à frente, recuperar a normal correta na fase de
- * sombreamento (Phong, Entrega 3+).
+ * Resultado de interseção contra uma malha:
+ *   - distanceAlongRay: parâmetro t do triângulo MAIS PRÓXIMO atingido.
+ *   - hitFaceIndex:     índice do triângulo na malha (permite recuperar a
+ *                       normal da face ou interpolar normais via baricêntricas).
  */
 struct MeshHit {
-    double t;
-    int    faceIndex;
+    double distanceAlongRay;
+    int    hitFaceIndex;
 };
 
 /**
- * Testa o raio contra todas as faces da malha e retorna a interseção mais próxima.
- * Implementação O(N) por raio — sem estruturas aceleradoras (BVH/Octree). Para
- * malhas pequenas (~12 faces, cubo) é instantâneo; para o monkey (~1000 faces)
- * é o gargalo, ver renders/ para tempos.
+ * Testa o raio contra TODAS as faces da malha (algoritmo "brute force" O(F))
+ * e devolve a interseção mais próxima.
+ *
+ * Para malhas pequenas (12 faces no cubo) o custo é desprezível. Para o monkey
+ * (~967 faces), 1920×1080 pixels resultam em ~2×10⁹ testes — mas o C++ otimizado
+ * lida com isso em ~8 segundos.
+ *
+ * Otimizações possíveis (não implementadas, mas no checklist "Feature difícil"):
+ *   - Bounding box envolvendo a malha: se o raio nem toca a caixa, pula a malha inteira.
+ *   - BVH (Bounding Volume Hierarchy): reduz custo a O(log F).
+ *   - Octree: subdivisão espacial recursiva.
  */
 inline std::optional<MeshHit> intersectMesh(const Ray& ray, const TriangleMesh& mesh) {
-    std::optional<MeshHit> closest;
-    double closestT = std::numeric_limits<double>::infinity();
+    std::optional<MeshHit> closestHit;
+    double closestDistanceFound = std::numeric_limits<double>::infinity();
 
-    const auto& vs = mesh.getVertices();
-    const auto& fs = mesh.getFaces();
+    const std::vector<Ponto>&        meshVertices = mesh.getVertices();
+    const std::vector<TriangleFace>& meshFaces    = mesh.getFaces();
 
-    for (size_t i = 0; i < fs.size(); ++i) {
-        const TriangleFace& f = fs[i];
-        auto hit = intersectTriangle(ray, vs[f.v0], vs[f.v1], vs[f.v2]);
-        if (hit.has_value() && hit->t < closestT) {
-            closestT = hit->t;
-            closest = MeshHit{ hit->t, static_cast<int>(i) };
+    for (size_t faceIndex = 0; faceIndex < meshFaces.size(); ++faceIndex) {
+        const TriangleFace& currentFace = meshFaces[faceIndex];
+        const Ponto& vertexV0 = meshVertices[currentFace.firstVertexIndex];
+        const Ponto& vertexV1 = meshVertices[currentFace.secondVertexIndex];
+        const Ponto& vertexV2 = meshVertices[currentFace.thirdVertexIndex];
+
+        std::optional<TriangleHit> currentHit = intersectTriangle(ray, vertexV0, vertexV1, vertexV2);
+
+        bool foundCloserHit = currentHit.has_value() &&
+                              currentHit->distanceAlongRay < closestDistanceFound;
+        if (foundCloserHit) {
+            closestDistanceFound = currentHit->distanceAlongRay;
+            closestHit = MeshHit{ currentHit->distanceAlongRay, static_cast<int>(faceIndex) };
         }
     }
-    return closest;
+    return closestHit;
 }
 
 // ============================================================================
@@ -285,37 +330,50 @@ inline std::optional<double> intersectPlaneObject(const Ray& ray, ObjectData& ob
 }
 
 /**
- * Mapa de malhas pré-carregadas, indexado por endereço do ObjectData.
+ * Mapa de malhas pré-carregadas, indexado pelo ENDEREÇO do ObjectData.
  *
- * Por que ponteiro como chave: ObjectData não tem um identificador único; usar o
- * endereço do objeto na lista da cena dá uma chave estável durante a vida do
- * processo (a lista de objetos não é redimensionada após carregar a cena).
+ * Por que indexar por ponteiro? Um `ObjectData` não tem campo de ID único;
+ * usar o endereço do objeto na lista da cena dá uma chave estável durante a
+ * vida do programa (a lista de objetos não é redimensionada após o load).
+ *
+ * As malhas em si vivem em outro container (com std::unique_ptr) — este mapa
+ * armazena apenas ponteiros não-donos para consulta rápida.
  */
 using MeshLookup = std::map<const ObjectData*, const TriangleMesh*>;
 
-/** Recupera a malha pré-carregada associada a `obj` e delega para intersectMesh. */
+/**
+ * Localiza a malha pré-carregada que pertence ao `objectData` e delega a
+ * interseção para `intersectMesh`. Se o objeto não tem malha registrada
+ * (ex: o .obj não foi encontrado em disco), devolve nullopt.
+ */
 inline std::optional<double> intersectMeshObject(const Ray& ray,
-                                                 const ObjectData& obj,
-                                                 const MeshLookup& meshes) {
-    auto it = meshes.find(&obj);
-    if (it == meshes.end()) return std::nullopt;
-    auto hit = intersectMesh(ray, *it->second);
-    if (!hit.has_value()) return std::nullopt;
-    return hit->t;
+                                                 const ObjectData& objectData,
+                                                 const MeshLookup& preloadedMeshes) {
+    auto meshLookupIterator = preloadedMeshes.find(&objectData);
+    bool meshNotPreloadedForThisObject = meshLookupIterator == preloadedMeshes.end();
+    if (meshNotPreloadedForThisObject) return std::nullopt;
+
+    const TriangleMesh& meshForThisObject = *meshLookupIterator->second;
+    std::optional<MeshHit> meshHit = intersectMesh(ray, meshForThisObject);
+    if (!meshHit.has_value()) return std::nullopt;
+    return meshHit->distanceAlongRay;
 }
 
 /**
- * Dispatcher: chama a função de interseção apropriada pelo tipo do objeto.
- * Tipos suportados: "sphere", "plane", "mesh". Outros tipos retornam std::nullopt.
+ * Dispatcher central: olha o `objType` do objeto e chama a função de interseção
+ * apropriada. Tipos suportados: "sphere", "plane", "mesh". Outros tipos
+ * (ex: "cone" no futuro) caem no fallback `nullopt`.
  *
- * `meshes` é o lookup de malhas pré-carregadas. Para esferas/planos é ignorado
- * (passar mapa vazio funciona). Para "mesh", uma entrada faltando devolve nullopt.
+ * O parâmetro `preloadedMeshes` é ignorado para esferas/planos (passar mapa
+ * vazio funciona). Para malhas, o mapa precisa conter uma entrada para o objeto
+ * — caso contrário retornamos nullopt sem erro fatal.
  */
-inline std::optional<double> intersect(const Ray& ray, ObjectData& obj,
-                                       const MeshLookup& meshes) {
-    if (obj.objType == "sphere") return intersectSphereObject(ray, obj);
-    if (obj.objType == "plane")  return intersectPlaneObject(ray, obj);
-    if (obj.objType == "mesh")   return intersectMeshObject(ray, obj, meshes);
+inline std::optional<double> intersect(const Ray& ray,
+                                       ObjectData& objectFromScene,
+                                       const MeshLookup& preloadedMeshes) {
+    if (objectFromScene.objType == "sphere") return intersectSphereObject(ray, objectFromScene);
+    if (objectFromScene.objType == "plane")  return intersectPlaneObject(ray, objectFromScene);
+    if (objectFromScene.objType == "mesh")   return intersectMeshObject(ray, objectFromScene, preloadedMeshes);
     return std::nullopt;
 }
 

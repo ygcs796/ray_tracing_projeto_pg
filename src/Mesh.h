@@ -2,22 +2,25 @@
 #define MESH_HEADER
 
 /**
- * Malha de triângulos: lista de vértices, faces (triplas de índices), normais
- * por face e normais por vértice (média ponderada das normais das faces adjacentes).
+ * Malha de triângulos: representa qualquer superfície (carro, rosto, monkey)
+ * como uma coleção de triângulos planos.
  *
- * Construção:
- *   1. Copia vértices e faces do objReader.
- *   2. Calcula normal de cada face geometricamente (cross dos edges).
- *      Normais do .obj são ignoradas — calcular geometricamente é mais robusto
- *      contra .obj's incompletos ou com normais inconsistentes.
- *   3. Para cada vértice, soma as normais das faces que o contêm e normaliza.
+ * Estrutura:
+ *   - vertices              — todos os vértices únicos da malha (sem duplicação)
+ *   - faces                 — cada face é uma tripla de ÍNDICES em `vertices`
+ *   - faceNormals[i]        — normal da face i (perpendicular ao seu plano)
+ *   - vertexNormals[i]      — normal do vértice i (média das faces adjacentes)
+ *   - material              — cor difusa, especular, etc., comum a toda a malha
  *
- * Transformação (apply_transform):
- *   - Vértices: P' = M · P
- *   - Normais de face e vértice: N' = (M^-1)^T · N (regra correta para normais).
- *   Recalcular as faces a partir dos vértices transformados também funcionaria,
- *   mas usar a regra das normais é mais barato (evita um cross product por face)
- *   e numericamente equivalente para transformações afins.
+ * Por que indexar vértices em vez de duplicar?
+ *   Em um cubo, cada vértice é compartilhado por 3 faces. Indexar economiza
+ *   memória e — mais importante — garante que ao transformar um vértice, todas
+ *   as faces que o usam ficam corretas automaticamente.
+ *
+ * Por que ignoramos as normais que vêm do .obj?
+ *   .obj's nem sempre exportam normais para todas as faces, e quando exportam
+ *   podem ter inconsistências de orientação. Recalcular geometricamente via
+ *   cross product das arestas é sempre robusto.
  */
 
 #include <vector>
@@ -27,114 +30,138 @@
 #include "../utils/MeshReader/ObjReader.cpp"
 #include "../utils/Scene/sceneSchema.hpp"
 
+/** Uma face triangular: três índices apontando para vértices em `vertices`. */
 struct TriangleFace {
-    int v0, v1, v2;  // índices em `vertices`
+    int firstVertexIndex;
+    int secondVertexIndex;
+    int thirdVertexIndex;
 };
 
 class TriangleMesh {
 public:
-    /** Constrói a malha lendo do objReader e copiando o material do ObjectData. */
-    TriangleMesh(objReader& reader, const MaterialData& materialFromScene)
+    /**
+     * Carrega a malha a partir de um leitor de .obj e copia o material da cena.
+     * Após isto, a malha está pronta para interseção (vértices, faces e normais
+     * todos calculados).
+     */
+    TriangleMesh(objReader& meshReader, const MaterialData& materialFromScene)
         : material(materialFromScene)
     {
-        vertices = reader.getVertices();
+        vertices = meshReader.getVertices();
 
-        // Copia faces (apenas índices de vértice — normais do .obj são ignoradas).
-        // O objReader já fez o ajuste de índices (subtraiu 1 do formato 1-based do .obj).
-        std::vector<std::vector<Ponto>> facePoints = reader.getFacePoints();
-        // Reconstrói os índices percorrendo os vértices: como `getFacePoints` devolve
-        // pontos copiados, precisamos voltar aos índices comparando referências.
-        // Solução pragmática: usar a estrutura interna do objReader via getFacePoints,
-        // e reindexar buscando os pontos. Aqui usamos uma abordagem mais direta:
-        // o objReader expõe os índices originais via `faces` (privado), então
-        // reconstruímos os índices comparando ponteiros — em vez disso, reaproveitamos
-        // facePoints e indexamos por igualdade exata de coordenadas.
-        // Para evitar essa complexidade, lemos diretamente os índices construindo
-        // novamente: como objReader não expõe os índices, recriamos faces casando
-        // facePoints[k][i] com vertices[j].
-        for (size_t f = 0; f < facePoints.size(); ++f) {
+        // O `objReader` já fez o ajuste de índices (.obj é 1-based; convertemos
+        // para 0-based). `getFacePoints` devolve cada face como uma cópia dos
+        // 3 pontos — para reconstruir os índices, casamos por igualdade de
+        // coordenadas com o array `vertices`.
+        std::vector<std::vector<Ponto>> facesAsPointTriples = meshReader.getFacePoints();
+        for (const auto& threePointsOfFace : facesAsPointTriples) {
             TriangleFace face{
-                findVertexIndex(facePoints[f][0]),
-                findVertexIndex(facePoints[f][1]),
-                findVertexIndex(facePoints[f][2])
+                findVertexIndexByPosition(threePointsOfFace[0]),
+                findVertexIndexByPosition(threePointsOfFace[1]),
+                findVertexIndexByPosition(threePointsOfFace[2])
             };
             faces.push_back(face);
         }
 
-        computeFaceNormals();
-        computeVertexNormals();
+        recomputeFaceNormalsFromCurrentVertices();
+        recomputeVertexNormalsFromFaceNormals();
     }
 
     /**
-     * Aplica a transformação afim composta a vértices e normais.
-     * Vértices viram P' = M·P; normais viram N' = (M^-1)^T·N.
-     * Triângulos degenerados são ignorados ao recalcular face normals.
+     * Aplica uma transformação 4x4 (composição de translação, escala, rotação)
+     * a todos os vértices da malha.
+     *
+     * Estratégia para as normais: em vez de aplicar (M⁻¹)ᵀ a cada normal já
+     * existente, RECALCULAMOS as normais geometricamente a partir dos novos
+     * vértices. Tem duas vantagens:
+     *   - Mais barato (1 cross product por face vs. inversão da matriz).
+     *   - Mais robusto contra escalas não-uniformes combinadas com rotações.
      */
-    void applyTransform(const Matrix4x4& m) {
-        for (auto& v : vertices) v = m.transformPoint(v);
-
-        // Recalcula as normais de face a partir dos vértices transformados —
-        // mais robusto do que aplicar (M^-1)^T quando há escalas não-uniformes
-        // combinadas com rotações.
-        computeFaceNormals();
-        computeVertexNormals();
+    void applyTransform(const Matrix4x4& transformationMatrix) {
+        for (Ponto& vertex : vertices) {
+            vertex = transformationMatrix.transformPoint(vertex);
+        }
+        recomputeFaceNormalsFromCurrentVertices();
+        recomputeVertexNormalsFromFaceNormals();
     }
 
-    // Getters (uso público em Intersect e main)
-    const std::vector<Ponto>&        getVertices()       const { return vertices; }
-    const std::vector<TriangleFace>& getFaces()          const { return faces; }
-    const std::vector<Vetor>&        getFaceNormals()    const { return faceNormals; }
-    const std::vector<Vetor>&        getVertexNormals()  const { return vertexNormals; }
-    const MaterialData&              getMaterial()       const { return material; }
+    // ---------- getters usados pelo Intersect.h e pelo main.cpp ----------
+    const std::vector<Ponto>&        getVertices()      const { return vertices; }
+    const std::vector<TriangleFace>& getFaces()         const { return faces; }
+    const std::vector<Vetor>&        getFaceNormals()   const { return faceNormals; }
+    const std::vector<Vetor>&        getVertexNormals() const { return vertexNormals; }
+    const MaterialData&              getMaterial()      const { return material; }
 
 private:
-    /** Localiza o índice de um vértice em `vertices` por igualdade exata de coordenadas. */
-    int findVertexIndex(const Ponto& p) const {
-        for (size_t i = 0; i < vertices.size(); ++i) {
-            if (vertices[i].getX() == p.getX() &&
-                vertices[i].getY() == p.getY() &&
-                vertices[i].getZ() == p.getZ())
-                return static_cast<int>(i);
+    /**
+     * Procura o índice de um vértice em `vertices` casando por coordenadas
+     * exatas. Usado apenas durante a construção da malha.
+     */
+    int findVertexIndexByPosition(const Ponto& targetPoint) const {
+        for (size_t candidateIndex = 0; candidateIndex < vertices.size(); ++candidateIndex) {
+            const Ponto& candidate = vertices[candidateIndex];
+            bool sameX = candidate.getX() == targetPoint.getX();
+            bool sameY = candidate.getY() == targetPoint.getY();
+            bool sameZ = candidate.getZ() == targetPoint.getZ();
+            if (sameX && sameY && sameZ) return static_cast<int>(candidateIndex);
         }
-        return -1;  // não deve ocorrer (ObjReader monta facePoints a partir de vertices)
+        return -1;
     }
 
     /**
-     * Para cada face A,B,C: N = normalize(cross(B-A, C-A)).
-     * Triângulos degenerados (área zero) ficam com Vetor(0,0,0) — interseção falhará
-     * naturalmente em Möller-Trumbore (a ≈ 0).
+     * Calcula a normal de cada face pelo cross product das arestas.
+     *
+     * Para uma face ABC:
+     *   primeiraAresta = B - A
+     *   segundaAresta  = C - A
+     *   normal = normalize(primeiraAresta × segundaAresta)
+     *
+     * A ordem dos vértices define o sentido da normal (regra da mão direita).
+     * Convenção do .obj: anti-horário visto do lado de fora → normal aponta para fora.
+     *
+     * Triângulos degenerados (3 pontos colineares) têm cross zero. Salvamos
+     * (0,0,0) — Möller-Trumbore vai descartar a face naturalmente no teste
+     * "raio paralelo".
      */
-    void computeFaceNormals() {
+    void recomputeFaceNormalsFromCurrentVertices() {
         faceNormals.clear();
         faceNormals.reserve(faces.size());
-        for (const auto& f : faces) {
-            const Ponto& A = vertices[f.v0];
-            const Ponto& B = vertices[f.v1];
-            const Ponto& C = vertices[f.v2];
-            Vetor edge1 = B - A;
-            Vetor edge2 = C - A;
-            Vetor n = edge1.cross(edge2);
-            if (n.magnitude() < 1e-12) {
+        for (const TriangleFace& face : faces) {
+            const Ponto& vertexA = vertices[face.firstVertexIndex];
+            const Ponto& vertexB = vertices[face.secondVertexIndex];
+            const Ponto& vertexC = vertices[face.thirdVertexIndex];
+
+            Vetor edgeFromAToB = vertexB - vertexA;
+            Vetor edgeFromAToC = vertexC - vertexA;
+            Vetor unnormalizedNormal = edgeFromAToB.cross(edgeFromAToC);
+
+            bool faceIsDegenerate = unnormalizedNormal.magnitude() < 1e-12;
+            if (faceIsDegenerate) {
                 faceNormals.push_back(Vetor(0, 0, 0));
             } else {
-                faceNormals.push_back(n.normalize());
+                faceNormals.push_back(unnormalizedNormal.normalize());
             }
         }
     }
 
     /**
-     * Normal de vértice = média (somatório + normalize) das normais das faces que o contêm.
-     * Soma ponderada implícita: faces maiores não pesam mais (usamos normais já unitárias).
+     * Calcula a normal de cada vértice como soma das normais das faces que
+     * o contêm, depois normaliza. Útil para interpolar normais entre vértices
+     * via coordenadas baricêntricas (suaviza superfícies aproximadas por triângulos).
      */
-    void computeVertexNormals() {
+    void recomputeVertexNormalsFromFaceNormals() {
         vertexNormals.assign(vertices.size(), Vetor(0, 0, 0));
-        for (size_t i = 0; i < faces.size(); ++i) {
-            const Vetor& fn = faceNormals[i];
-            vertexNormals[faces[i].v0] = vertexNormals[faces[i].v0] + fn;
-            vertexNormals[faces[i].v1] = vertexNormals[faces[i].v1] + fn;
-            vertexNormals[faces[i].v2] = vertexNormals[faces[i].v2] + fn;
+        for (size_t faceIndex = 0; faceIndex < faces.size(); ++faceIndex) {
+            const Vetor& currentFaceNormal = faceNormals[faceIndex];
+            const TriangleFace& face = faces[faceIndex];
+
+            vertexNormals[face.firstVertexIndex]  = vertexNormals[face.firstVertexIndex]  + currentFaceNormal;
+            vertexNormals[face.secondVertexIndex] = vertexNormals[face.secondVertexIndex] + currentFaceNormal;
+            vertexNormals[face.thirdVertexIndex]  = vertexNormals[face.thirdVertexIndex]  + currentFaceNormal;
         }
-        for (auto& vn : vertexNormals) vn = vn.normalize();
+        for (Vetor& vertexNormal : vertexNormals) {
+            vertexNormal = vertexNormal.normalize();
+        }
     }
 
     std::vector<Ponto>        vertices;

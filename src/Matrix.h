@@ -2,20 +2,34 @@
 #define MATRIX_HEADER
 
 /**
- * Matriz homogênea 4x4 para transformações afins (translação, escala, rotação)
- * em coordenadas de pontos, vetores e normais em R³.
+ * Matriz homogênea 4x4 — base de todas as transformações afins (translação,
+ * escala, rotação) aplicadas a pontos, vetores e normais em R³.
  *
- * Convenções:
- *   - Coordenadas homogêneas: ponto = (x, y, z, 1), vetor direção = (x, y, z, 0).
- *   - Multiplicação coluna-vetor:  P' = M · P.
- *   - Composição da esquerda para a direita "do mais externo para o mais interno":
- *       (A · B) · v = A · (B · v)  → B é aplicada primeiro, depois A.
+ * Por que 4x4 e não 3x3?
+ *   Translação não é uma transformação linear em R³ — uma matriz 3x3 sempre
+ *   mapeia a origem em si mesma. Adicionando uma 4ª coordenada (a "coordenada
+ *   homogênea" w), conseguimos codificar a translação na 4ª coluna da matriz.
  *
- * Por que normais usam (M^-1)^T:
- *   Uma normal é definida por  N · v = 0  para todo vetor v tangente à superfície.
- *   Se v transforma como v' = M v, queremos N' tal que N' · v' = 0.
- *   Isso vale com  N' = (M^-1)^T · N. Usar M direta deformaria a normal sob
- *   escalas não-uniformes (ex: scaling(2,1,1) inclinaria as normais).
+ * Convenção de coordenadas homogêneas:
+ *   - Pontos têm w = 1   → a 4ª coluna da matriz aplica translação normalmente.
+ *   - Vetores têm w = 0  → a 4ª coluna é multiplicada por 0 e a translação não
+ *                          afeta direções (uma seta apontando pro norte continua
+ *                          apontando pro norte se você "andar" 5 km).
+ *
+ * Convenção de composição:
+ *   Multiplicação coluna-vetor: ponto_transformado = matriz · ponto.
+ *   Em "M = A · B · C", aplicada a um ponto p, a ordem é:
+ *       M · p = A · (B · (C · p))
+ *   A matriz mais à direita é aplicada PRIMEIRO. Por isso, ao compor uma lista
+ *   de transformações [T1, T2, T3] onde T1 deve ser aplicada antes, montamos
+ *   M = T3 · T2 · T1 (a primeira da lista vira a mais interna).
+ *
+ * Por que normais usam (M⁻¹)ᵀ em vez de M:
+ *   Por definição, normal · vetor_tangente = 0 para todo vetor tangente à
+ *   superfície. Quando vetores tangentes transformam como v' = M · v, queremos
+ *   que normal' · v' continue zero. Resolvendo, sai normal' = (M⁻¹)ᵀ · normal.
+ *   Aplicar M direto na normal só funciona pra rotação e escala uniforme — sob
+ *   escala não-uniforme a normal "ingênua" aponta numa direção errada.
  */
 
 #include <cmath>
@@ -25,306 +39,423 @@
 
 class Matrix4x4 {
 public:
-    /** Constrói matriz a partir de array 4x4 já preenchido. */
+    /** Constrói a matriz com todas as 16 entradas zeradas. */
     Matrix4x4() {
-        for (int i = 0; i < 4; ++i)
-            for (int j = 0; j < 4; ++j)
-                m[i][j] = 0.0;
+        for (int rowIndex = 0; rowIndex < 4; ++rowIndex)
+            for (int colIndex = 0; colIndex < 4; ++colIndex)
+                entries[rowIndex][colIndex] = 0.0;
     }
 
-    /** Acesso direto às entradas (linha, coluna). */
-    double& at(int row, int col) { return m[row][col]; }
-    double  at(int row, int col) const { return m[row][col]; }
+    /** Acesso direto a uma entrada (linha, coluna). */
+    double& at(int rowIndex, int colIndex)             { return entries[rowIndex][colIndex]; }
+    double  at(int rowIndex, int colIndex) const       { return entries[rowIndex][colIndex]; }
 
     // ========================================================================
     // CONSTRUTORES (factory methods)
+    //
+    // Cada método estático monta uma matriz pronta pra um tipo de transformação.
+    // Use-os e componha via operator* para construir transformações complexas.
     // ========================================================================
 
-    /** Identidade: I · v = v. */
+    /**
+     * Matriz identidade — a transformação que NÃO faz nada.
+     *
+     *   | 1  0  0  0 |
+     *   | 0  1  0  0 |
+     *   | 0  0  1  0 |
+     *   | 0  0  0  1 |
+     *
+     * Aplicada a qualquer ponto/vetor, devolve ele igual. É o "elemento neutro"
+     * da composição matricial — usada como ponto de partida ao acumular várias
+     * transformações num loop (análogo a começar uma soma com 0).
+     */
     static Matrix4x4 identity() {
-        Matrix4x4 r;
-        r.m[0][0] = r.m[1][1] = r.m[2][2] = r.m[3][3] = 1.0;
-        return r;
+        Matrix4x4 result;
+        result.entries[0][0] = 1.0;
+        result.entries[1][1] = 1.0;
+        result.entries[2][2] = 1.0;
+        result.entries[3][3] = 1.0;
+        return result;
     }
 
     /**
-     * Translação por (tx, ty, tz). Move pontos; vetores direção (w=0) ficam intocados.
-     *   | 1  0  0  tx |
-     *   | 0  1  0  ty |
-     *   | 0  0  1  tz |
+     * Translação por (deltaX, deltaY, deltaZ).
+     *
+     *   | 1  0  0  dx |
+     *   | 0  1  0  dy |
+     *   | 0  0  1  dz |
      *   | 0  0  0  1  |
+     *
+     * Move pontos pelo vetor (dx, dy, dz). Vetores direção (w=0) não são
+     * afetados — a coluna 4 multiplica 0 quando o w do vetor é 0.
      */
-    static Matrix4x4 translation(double tx, double ty, double tz) {
-        Matrix4x4 r = identity();
-        r.m[0][3] = tx;
-        r.m[1][3] = ty;
-        r.m[2][3] = tz;
-        return r;
+    static Matrix4x4 translation(double deltaX, double deltaY, double deltaZ) {
+        Matrix4x4 result = identity();
+        result.entries[0][3] = deltaX;
+        result.entries[1][3] = deltaY;
+        result.entries[2][3] = deltaZ;
+        return result;
     }
 
     /**
      * Escala não-uniforme em torno da origem.
+     *
      *   | sx  0   0   0 |
      *   | 0   sy  0   0 |
      *   | 0   0   sz  0 |
      *   | 0   0   0   1 |
-     * Para escalar em torno de um ponto P arbitrário: T(P) · S · T(-P).
+     *
+     * Multiplica cada coordenada pelo seu fator. Pontos longe da origem
+     * "afastam-se" mais que pontos perto. Para escalar em torno de um ponto P
+     * arbitrário (não a origem), usar `scalingAroundPoint`.
      */
-    static Matrix4x4 scaling(double sx, double sy, double sz) {
-        Matrix4x4 r;
-        r.m[0][0] = sx;
-        r.m[1][1] = sy;
-        r.m[2][2] = sz;
-        r.m[3][3] = 1.0;
-        return r;
+    static Matrix4x4 scaling(double scaleX, double scaleY, double scaleZ) {
+        Matrix4x4 result;
+        result.entries[0][0] = scaleX;
+        result.entries[1][1] = scaleY;
+        result.entries[2][2] = scaleZ;
+        result.entries[3][3] = 1.0;
+        return result;
     }
 
     /**
-     * Rotação em torno do eixo X (sentido anti-horário olhando do +X para a origem).
+     * Rotação em torno do eixo X (anti-horária, vista do +X em direção à origem).
+     *
      *   | 1    0       0    0 |
      *   | 0  cosθ   -sinθ   0 |
      *   | 0  sinθ    cosθ   0 |
      *   | 0    0       0    1 |
+     *
+     * Mantém a coordenada X intacta. Y e Z giram entre si.
      */
-    static Matrix4x4 rotationX(double angleRad) {
-        double c = std::cos(angleRad);
-        double s = std::sin(angleRad);
-        Matrix4x4 r = identity();
-        r.m[1][1] =  c;  r.m[1][2] = -s;
-        r.m[2][1] =  s;  r.m[2][2] =  c;
-        return r;
+    static Matrix4x4 rotationX(double angleInRadians) {
+        double cosTheta = std::cos(angleInRadians);
+        double sinTheta = std::sin(angleInRadians);
+        Matrix4x4 result = identity();
+        result.entries[1][1] =  cosTheta;  result.entries[1][2] = -sinTheta;
+        result.entries[2][1] =  sinTheta;  result.entries[2][2] =  cosTheta;
+        return result;
     }
 
-    /** Rotação em torno do eixo Y. */
-    static Matrix4x4 rotationY(double angleRad) {
-        double c = std::cos(angleRad);
-        double s = std::sin(angleRad);
-        Matrix4x4 r = identity();
-        r.m[0][0] =  c;  r.m[0][2] =  s;
-        r.m[2][0] = -s;  r.m[2][2] =  c;
-        return r;
+    /** Rotação em torno do eixo Y. Mantém Y intacto; X e Z giram entre si. */
+    static Matrix4x4 rotationY(double angleInRadians) {
+        double cosTheta = std::cos(angleInRadians);
+        double sinTheta = std::sin(angleInRadians);
+        Matrix4x4 result = identity();
+        result.entries[0][0] =  cosTheta;  result.entries[0][2] =  sinTheta;
+        result.entries[2][0] = -sinTheta;  result.entries[2][2] =  cosTheta;
+        return result;
     }
 
-    /** Rotação em torno do eixo Z. */
-    static Matrix4x4 rotationZ(double angleRad) {
-        double c = std::cos(angleRad);
-        double s = std::sin(angleRad);
-        Matrix4x4 r = identity();
-        r.m[0][0] =  c;  r.m[0][1] = -s;
-        r.m[1][0] =  s;  r.m[1][1] =  c;
-        return r;
+    /** Rotação em torno do eixo Z. Mantém Z intacto; X e Y giram entre si. */
+    static Matrix4x4 rotationZ(double angleInRadians) {
+        double cosTheta = std::cos(angleInRadians);
+        double sinTheta = std::sin(angleInRadians);
+        Matrix4x4 result = identity();
+        result.entries[0][0] =  cosTheta;  result.entries[0][1] = -sinTheta;
+        result.entries[1][0] =  sinTheta;  result.entries[1][1] =  cosTheta;
+        return result;
     }
 
     /**
-     * Escala em torno de um ponto arbitrário `pivot` (em vez da origem).
+     * Escala em torno de um ponto arbitrário (em vez da origem).
      *
-     * Composição: T(pivot) · S(sx,sy,sz) · T(-pivot).
+     * Estratégia: T(pivot) · S(sx, sy, sz) · T(-pivot).
      *   1. T(-pivot) leva o pivot para a origem.
-     *   2. S escala em torno da origem.
-     *   3. T(pivot) leva de volta. O pivot fica fixo após a operação.
+     *   2. S aplica a escala (que sempre fixa a origem).
+     *   3. T(pivot) leva tudo de volta.
+     * Resultado: o pivot fica fixo; os outros pontos esticam relativos a ele.
      */
-    static Matrix4x4 scalingAroundPoint(double sx, double sy, double sz, const Ponto& pivot) {
-        Matrix4x4 toPivot   = translation( pivot.getX(),  pivot.getY(),  pivot.getZ());
-        Matrix4x4 fromPivot = translation(-pivot.getX(), -pivot.getY(), -pivot.getZ());
-        return toPivot * scaling(sx, sy, sz) * fromPivot;
+    static Matrix4x4 scalingAroundPoint(double scaleX, double scaleY, double scaleZ,
+                                        const Ponto& pivot) {
+        Matrix4x4 moveToPivot     = translation( pivot.getX(),  pivot.getY(),  pivot.getZ());
+        Matrix4x4 moveBackToWorld = translation(-pivot.getX(), -pivot.getY(), -pivot.getZ());
+        return moveToPivot * scaling(scaleX, scaleY, scaleZ) * moveBackToWorld;
     }
 
     /**
-     * Rotação por ângulo `angleRad` em torno de um eixo arbitrário `axis`
-     * (que passa pela origem). Usa a fórmula de Rodrigues em forma matricial.
+     * Rotação por um ângulo em torno de um eixo arbitrário (que passa pela origem).
      *
-     * R = I + sinθ · K + (1 - cosθ) · K²
+     * Implementa a fórmula de Rodrigues em forma matricial:
      *
-     * onde K é a matriz anti-simétrica do produto vetorial com o eixo unitário u:
+     *   R = I + sinθ · K + (1 - cosθ) · K²
+     *
+     * onde K é a "matriz cross-product" do eixo unitário u = (ux, uy, uz):
+     *
      *   |  0  -uz  uy |
      *   | uz   0  -ux |
      *   |-uy  ux   0  |
      *
-     * Se o eixo não passa pela origem, compor com translações antes/depois,
-     * análogo a scalingAroundPoint.
+     * (K · v = u × v para qualquer vetor v.) Expandindo a fórmula nas 9 entradas
+     * 3x3 da rotação, chega-se nas expressões abaixo.
+     *
+     * Se o eixo NÃO passa pela origem, compor com translações antes/depois,
+     * análogo a `scalingAroundPoint`.
      */
-    static Matrix4x4 rotationAroundAxis(double angleRad, const Vetor& axis) {
-        Vetor u = axis.normalize();
-        double c = std::cos(angleRad);
-        double s = std::sin(angleRad);
-        double t = 1.0 - c;
-        double ux = u.getX(), uy = u.getY(), uz = u.getZ();
+    static Matrix4x4 rotationAroundAxis(double angleInRadians, const Vetor& rotationAxis) {
+        Vetor unitAxis = rotationAxis.normalize();
+        double cosTheta            = std::cos(angleInRadians);
+        double sinTheta            = std::sin(angleInRadians);
+        double oneMinusCosTheta    = 1.0 - cosTheta;
+        double axisX = unitAxis.getX();
+        double axisY = unitAxis.getY();
+        double axisZ = unitAxis.getZ();
 
-        Matrix4x4 r = identity();
-        r.m[0][0] = c + ux*ux*t;
-        r.m[0][1] = ux*uy*t - uz*s;
-        r.m[0][2] = ux*uz*t + uy*s;
+        Matrix4x4 result = identity();
+        result.entries[0][0] = cosTheta + axisX * axisX * oneMinusCosTheta;
+        result.entries[0][1] = axisX * axisY * oneMinusCosTheta - axisZ * sinTheta;
+        result.entries[0][2] = axisX * axisZ * oneMinusCosTheta + axisY * sinTheta;
 
-        r.m[1][0] = uy*ux*t + uz*s;
-        r.m[1][1] = c + uy*uy*t;
-        r.m[1][2] = uy*uz*t - ux*s;
+        result.entries[1][0] = axisY * axisX * oneMinusCosTheta + axisZ * sinTheta;
+        result.entries[1][1] = cosTheta + axisY * axisY * oneMinusCosTheta;
+        result.entries[1][2] = axisY * axisZ * oneMinusCosTheta - axisX * sinTheta;
 
-        r.m[2][0] = uz*ux*t - uy*s;
-        r.m[2][1] = uz*uy*t + ux*s;
-        r.m[2][2] = c + uz*uz*t;
-        return r;
+        result.entries[2][0] = axisZ * axisX * oneMinusCosTheta - axisY * sinTheta;
+        result.entries[2][1] = axisZ * axisY * oneMinusCosTheta + axisX * sinTheta;
+        result.entries[2][2] = cosTheta + axisZ * axisZ * oneMinusCosTheta;
+        return result;
     }
 
     /**
      * Transformação afim arbitrária a partir de 3 correspondências de pontos.
      *
-     * Dadas 3 correspondências A→A', B→B', C→C' (não-colineares), constrói a
-     * matriz 4x4 que leva A em A', B em B', C em C'. A 4ª correspondência é
-     * implícita: a origem do sistema afim definido pelos 3 pontos.
+     * Dadas 3 correspondências (sourceA → targetA, sourceB → targetB,
+     * sourceC → targetC) com sourceA, sourceB, sourceC NÃO-colineares, constrói
+     * a matriz 4x4 que realiza essa transformação.
      *
-     * Estratégia: resolvemos 3 sistemas lineares 4x4 (um por linha da matriz
-     * de transformação), cada um com 4 pontos de teste — A, B, C e a "origem"
-     * D = A + (A→A') na convenção de coordenadas baricêntricas estendidas.
+     * O problema tem 12 incógnitas (a parte afim de uma matriz 4x4) mas só 9
+     * equações vindas dos 3 pontos. Para fechar o sistema, precisamos de um 4º
+     * ponto não-coplanar com os 3 originais. Escolha robusta:
      *
-     * Mais robusto: definir D como qualquer ponto fora do plano ABC. Aqui usamos
-     * D = A + cross(B-A, C-A) (perpendicular ao plano ABC, garante não-coplanar)
-     * com correspondência D' = A' + cross(B'-A', C'-A') (preserva a estrutura
-     * geométrica para transformações afins não-degeneradas).
+     *   fourthSource = sourceA + (sourceB - sourceA) × (sourceC - sourceA)
+     *   fourthTarget = targetA + (targetB - targetA) × (targetC - targetA)
+     *
+     * O cross product gera um vetor perpendicular ao plano dos 3 pontos, então
+     * `fourthSource` é garantidamente fora do plano original.
+     *
+     * Tendo 4 correspondências, resolvemos M · sourceMatrix = targetMatrix
+     * (com cada coluna sendo um ponto em coordenadas homogêneas), o que dá
+     * M = targetMatrix · sourceMatrix⁻¹.
      */
     static Matrix4x4 affineFromCorrespondences(
-        const Ponto& A, const Ponto& B, const Ponto& C,
-        const Ponto& A2, const Ponto& B2, const Ponto& C2)
+        const Ponto& sourceA, const Ponto& sourceB, const Ponto& sourceC,
+        const Ponto& targetA, const Ponto& targetB, const Ponto& targetC)
     {
-        // 4º ponto: D fora do plano ABC, e D' fora do plano A'B'C'.
-        Vetor nABC = (B - A).cross(C - A);
-        Ponto D  = A + nABC;
-        Vetor nA2B2C2 = (B2 - A2).cross(C2 - A2);
-        Ponto D2 = A2 + nA2B2C2;
+        // Geramos um 4º ponto não-coplanar pelo cross product das arestas do
+        // triângulo de origem; mesmo procedimento no destino para preservar a
+        // estrutura geométrica.
+        Vetor sourceNormal = (sourceB - sourceA).cross(sourceC - sourceA);
+        Vetor targetNormal = (targetB - targetA).cross(targetC - targetA);
+        Ponto fourthSource = sourceA + sourceNormal;
+        Ponto fourthTarget = targetA + targetNormal;
 
-        // Sistema: M · src_i = dst_i, com src_i e dst_i em coordenadas homogêneas.
-        // Montamos a matriz Source 4x4 (colunas = A,B,C,D em homogêneas) e
-        // resolvemos M = Dest · Source⁻¹.
-        Matrix4x4 srcM, dstM;
-        auto fillCol = [](Matrix4x4& mat, int col, const Ponto& p) {
-            mat.m[0][col] = p.getX();
-            mat.m[1][col] = p.getY();
-            mat.m[2][col] = p.getZ();
-            mat.m[3][col] = 1.0;
+        // Cada coluna da matriz 4x4 é um ponto em coordenadas homogêneas (w=1).
+        Matrix4x4 sourceMatrix;
+        Matrix4x4 targetMatrix;
+        auto fillColumnWithPoint = [](Matrix4x4& matrix, int columnIndex, const Ponto& point) {
+            matrix.entries[0][columnIndex] = point.getX();
+            matrix.entries[1][columnIndex] = point.getY();
+            matrix.entries[2][columnIndex] = point.getZ();
+            matrix.entries[3][columnIndex] = 1.0;
         };
-        fillCol(srcM, 0, A);  fillCol(srcM, 1, B);  fillCol(srcM, 2, C);  fillCol(srcM, 3, D);
-        fillCol(dstM, 0, A2); fillCol(dstM, 1, B2); fillCol(dstM, 2, C2); fillCol(dstM, 3, D2);
-        return dstM * srcM.inverse();
+        fillColumnWithPoint(sourceMatrix, 0, sourceA);
+        fillColumnWithPoint(sourceMatrix, 1, sourceB);
+        fillColumnWithPoint(sourceMatrix, 2, sourceC);
+        fillColumnWithPoint(sourceMatrix, 3, fourthSource);
+        fillColumnWithPoint(targetMatrix, 0, targetA);
+        fillColumnWithPoint(targetMatrix, 1, targetB);
+        fillColumnWithPoint(targetMatrix, 2, targetC);
+        fillColumnWithPoint(targetMatrix, 3, fourthTarget);
+        return targetMatrix * sourceMatrix.inverse();
     }
 
     // ========================================================================
     // OPERAÇÕES
     // ========================================================================
 
-    /** Multiplicação de matrizes 4x4 (composição de transformações). */
-    Matrix4x4 operator*(const Matrix4x4& other) const {
-        Matrix4x4 r;
-        for (int i = 0; i < 4; ++i) {
-            for (int j = 0; j < 4; ++j) {
-                double sum = 0.0;
-                for (int k = 0; k < 4; ++k) sum += m[i][k] * other.m[k][j];
-                r.m[i][j] = sum;
+    /**
+     * Multiplicação de matrizes 4x4 (composição de transformações).
+     * Se A tem efeito X e B tem efeito Y, então (A · B) tem o efeito de
+     * "primeiro Y, depois X" quando aplicada a um ponto.
+     */
+    Matrix4x4 operator*(const Matrix4x4& rightOperand) const {
+        Matrix4x4 result;
+        for (int rowIndex = 0; rowIndex < 4; ++rowIndex) {
+            for (int colIndex = 0; colIndex < 4; ++colIndex) {
+                double accumulatedSum = 0.0;
+                for (int innerIndex = 0; innerIndex < 4; ++innerIndex) {
+                    accumulatedSum += entries[rowIndex][innerIndex] *
+                                      rightOperand.entries[innerIndex][colIndex];
+                }
+                result.entries[rowIndex][colIndex] = accumulatedSum;
             }
         }
-        return r;
+        return result;
     }
 
-    /** Transposição: (M^T)[i][j] = M[j][i]. */
+    /** Transposta: troca linhas por colunas. (Mᵀ)[i][j] = M[j][i]. */
     Matrix4x4 transpose() const {
-        Matrix4x4 r;
-        for (int i = 0; i < 4; ++i)
-            for (int j = 0; j < 4; ++j)
-                r.m[i][j] = m[j][i];
-        return r;
+        Matrix4x4 result;
+        for (int rowIndex = 0; rowIndex < 4; ++rowIndex)
+            for (int colIndex = 0; colIndex < 4; ++colIndex)
+                result.entries[rowIndex][colIndex] = entries[colIndex][rowIndex];
+        return result;
     }
 
     /**
-     * Transforma um ponto: P' = M · (x, y, z, 1).
-     * Faz a divisão perspectiva por w' caso w' != 1 (robustez; em afim w' sempre = 1).
+     * Aplica a transformação a um ponto (w = 1).
+     *
+     *   resultado = M · (x, y, z, 1)
+     *
+     * A divisão pelo w' final torna a função robusta também para projeções
+     * em perspectiva (onde w' ≠ 1). Em transformações afins puras (translação,
+     * escala, rotação), w' sempre vale 1 e a divisão é um no-op.
      */
-    Ponto transformPoint(const Ponto& p) const {
-        double x = m[0][0]*p.getX() + m[0][1]*p.getY() + m[0][2]*p.getZ() + m[0][3];
-        double y = m[1][0]*p.getX() + m[1][1]*p.getY() + m[1][2]*p.getZ() + m[1][3];
-        double z = m[2][0]*p.getX() + m[2][1]*p.getY() + m[2][2]*p.getZ() + m[2][3];
-        double w = m[3][0]*p.getX() + m[3][1]*p.getY() + m[3][2]*p.getZ() + m[3][3];
-        if (std::abs(w) > 1e-12 && std::abs(w - 1.0) > 1e-12) {
-            x /= w; y /= w; z /= w;
+    Ponto transformPoint(const Ponto& sourcePoint) const {
+        double resultX = entries[0][0] * sourcePoint.getX()
+                       + entries[0][1] * sourcePoint.getY()
+                       + entries[0][2] * sourcePoint.getZ()
+                       + entries[0][3];
+        double resultY = entries[1][0] * sourcePoint.getX()
+                       + entries[1][1] * sourcePoint.getY()
+                       + entries[1][2] * sourcePoint.getZ()
+                       + entries[1][3];
+        double resultZ = entries[2][0] * sourcePoint.getX()
+                       + entries[2][1] * sourcePoint.getY()
+                       + entries[2][2] * sourcePoint.getZ()
+                       + entries[2][3];
+        double resultW = entries[3][0] * sourcePoint.getX()
+                       + entries[3][1] * sourcePoint.getY()
+                       + entries[3][2] * sourcePoint.getZ()
+                       + entries[3][3];
+
+        bool needsPerspectiveDivision =
+            std::abs(resultW)         > 1e-12 &&
+            std::abs(resultW - 1.0)   > 1e-12;
+        if (needsPerspectiveDivision) {
+            resultX /= resultW;
+            resultY /= resultW;
+            resultZ /= resultW;
         }
-        return Ponto(x, y, z);
+        return Ponto(resultX, resultY, resultZ);
     }
 
     /**
-     * Transforma um vetor direção: V' = M · (x, y, z, 0).
-     * Translação não afeta vetores (a coluna 4 é multiplicada por 0).
+     * Aplica a transformação a um vetor direção (w = 0).
+     *
+     *   resultado = M · (x, y, z, 0)
+     *
+     * O w=0 zera a coluna 4, então translação não tem efeito — direções não têm
+     * "posição" pra ser deslocada. Apenas a parte 3x3 superior esquerda da
+     * matriz (rotação + escala) age sobre o vetor.
      */
-    Vetor transformVector(const Vetor& v) const {
-        double x = m[0][0]*v.getX() + m[0][1]*v.getY() + m[0][2]*v.getZ();
-        double y = m[1][0]*v.getX() + m[1][1]*v.getY() + m[1][2]*v.getZ();
-        double z = m[2][0]*v.getX() + m[2][1]*v.getY() + m[2][2]*v.getZ();
-        return Vetor(x, y, z);
+    Vetor transformVector(const Vetor& sourceVector) const {
+        double resultX = entries[0][0] * sourceVector.getX()
+                       + entries[0][1] * sourceVector.getY()
+                       + entries[0][2] * sourceVector.getZ();
+        double resultY = entries[1][0] * sourceVector.getX()
+                       + entries[1][1] * sourceVector.getY()
+                       + entries[1][2] * sourceVector.getZ();
+        double resultZ = entries[2][0] * sourceVector.getX()
+                       + entries[2][1] * sourceVector.getY()
+                       + entries[2][2] * sourceVector.getZ();
+        return Vetor(resultX, resultY, resultZ);
     }
 
     /**
-     * Transforma uma normal: N' = (M^-1)^T · N.
-     * Usar M direto deforma normais sob escala não-uniforme. A regra correta é
-     * derivada da invariância de N · v = 0 sob a transformação de v.
+     * Aplica a transformação a uma normal: N' = (M⁻¹)ᵀ · N, normalizada.
+     *
+     * A regra correta sai da invariância "normal · vetor_tangente = 0".
+     * Sob escala não-uniforme, aplicar M direto na normal a deformaria pro
+     * lado errado — por exemplo, S(2,1,1) aplicada a (1,1,0)/√2 daria (2,1,0)/√5
+     * (incorreto), enquanto (M⁻¹)ᵀ dá (0.5,1,0)/√1.25 (correto).
      */
-    Vetor transformNormal(const Vetor& n) const {
-        Matrix4x4 invT = inverse().transpose();
-        return invT.transformVector(n).normalize();
+    Vetor transformNormal(const Vetor& sourceNormal) const {
+        Matrix4x4 inverseTransposed = inverse().transpose();
+        return inverseTransposed.transformVector(sourceNormal).normalize();
     }
 
     /**
-     * Inversa da matriz 4x4 via método de cofatores (adjugada / determinante).
-     * Funciona para qualquer matriz não-singular. Lança exceção se det ≈ 0.
+     * Inversa da matriz 4x4 via método de cofatores: M⁻¹ = adj(M) / det(M).
+     *
+     * Para cada posição (i, j):
+     *   1. Calcula a "submatriz menor" (3x3 obtida removendo linha i e coluna j).
+     *   2. Calcula seu determinante (esse é o "menor" de [i][j]).
+     *   3. Multiplica pelo sinal alternado (-1)^(i+j) — sai o "cofator".
+     *
+     * Depois:
+     *   - Determinante de M = soma dos produtos da primeira linha pelos seus cofatores.
+     *   - Adjugada(M) = transposta da matriz de cofatores.
+     *   - M⁻¹ = adjugada(M) / det(M).
+     *
+     * Lança exceção se a matriz for singular (det ≈ 0). Singularidade significa
+     * que M "achatou" o espaço em uma dimensão menor — ex: scaling(0, 1, 1).
      */
     Matrix4x4 inverse() const {
-        // Algoritmo: M^-1 = adj(M) / det(M), com adj(M)[i][j] = cofator(j, i).
-        Matrix4x4 result;
-        Matrix4x4 cofactors;
+        Matrix4x4 cofactorMatrix;
 
-        for (int i = 0; i < 4; ++i) {
-            for (int j = 0; j < 4; ++j) {
-                double sub[3][3];
-                copyMinor(i, j, sub);
-                double minor = determinant3x3(sub);
-                double sign = ((i + j) % 2 == 0) ? 1.0 : -1.0;
-                cofactors.m[i][j] = sign * minor;
+        // Etapa 1: monta a matriz de cofatores.
+        for (int rowIndex = 0; rowIndex < 4; ++rowIndex) {
+            for (int colIndex = 0; colIndex < 4; ++colIndex) {
+                double minorSubmatrix[3][3];
+                copySubmatrixWithoutRowAndColumn(rowIndex, colIndex, minorSubmatrix);
+                double minorDeterminant = determinantOf3x3(minorSubmatrix);
+                double sign = ((rowIndex + colIndex) % 2 == 0) ? 1.0 : -1.0;
+                cofactorMatrix.entries[rowIndex][colIndex] = sign * minorDeterminant;
             }
         }
 
-        // det(M) = soma dos produtos da primeira linha pelos seus cofatores.
-        double det = 0.0;
-        for (int j = 0; j < 4; ++j) det += m[0][j] * cofactors.m[0][j];
-        if (std::abs(det) < 1e-12) {
-            throw std::runtime_error("Matrix4x4::inverse: matriz singular");
+        // Etapa 2: determinante de M = primeira linha · cofatores correspondentes.
+        double determinantOfThisMatrix = 0.0;
+        for (int colIndex = 0; colIndex < 4; ++colIndex) {
+            determinantOfThisMatrix += entries[0][colIndex] * cofactorMatrix.entries[0][colIndex];
+        }
+        if (std::abs(determinantOfThisMatrix) < 1e-12) {
+            throw std::runtime_error("Matrix4x4::inverse: matriz singular (det ≈ 0)");
         }
 
-        // Adjugada = transposta da matriz de cofatores; M^-1 = adj / det.
-        for (int i = 0; i < 4; ++i)
-            for (int j = 0; j < 4; ++j)
-                result.m[i][j] = cofactors.m[j][i] / det;
+        // Etapa 3: M⁻¹ = adjugada / det. Adjugada = transposta dos cofatores,
+        // então acessamos cofactorMatrix[colIndex][rowIndex] ao preencher result[rowIndex][colIndex].
+        Matrix4x4 result;
+        for (int rowIndex = 0; rowIndex < 4; ++rowIndex) {
+            for (int colIndex = 0; colIndex < 4; ++colIndex) {
+                result.entries[rowIndex][colIndex] =
+                    cofactorMatrix.entries[colIndex][rowIndex] / determinantOfThisMatrix;
+            }
+        }
         return result;
     }
 
 private:
-    /** Determinante 3x3 (regra de Sarrus). */
-    static double determinant3x3(const double s[3][3]) {
-        return s[0][0] * (s[1][1] * s[2][2] - s[1][2] * s[2][1])
-             - s[0][1] * (s[1][0] * s[2][2] - s[1][2] * s[2][0])
-             + s[0][2] * (s[1][0] * s[2][1] - s[1][1] * s[2][0]);
+    /** Determinante 3x3 pela regra de Sarrus (expansão na primeira linha). */
+    static double determinantOf3x3(const double matrix[3][3]) {
+        return matrix[0][0] * (matrix[1][1] * matrix[2][2] - matrix[1][2] * matrix[2][1])
+             - matrix[0][1] * (matrix[1][0] * matrix[2][2] - matrix[1][2] * matrix[2][0])
+             + matrix[0][2] * (matrix[1][0] * matrix[2][1] - matrix[1][1] * matrix[2][0]);
     }
 
-    /** Preenche `sub` com a submatriz 3x3 obtida removendo linha `excludeRow` e coluna `excludeCol`. */
-    void copyMinor(int excludeRow, int excludeCol, double sub[3][3]) const {
-        int rr = 0;
-        for (int i = 0; i < 4; ++i) {
-            if (i == excludeRow) continue;
-            int cc = 0;
-            for (int j = 0; j < 4; ++j) {
-                if (j == excludeCol) continue;
-                sub[rr][cc] = m[i][j];
-                ++cc;
+    /**
+     * Preenche `submatrixOut` com a submatriz 3x3 obtida removendo `rowToExclude`
+     * e `columnToExclude` da matriz atual. Usado para calcular cofatores.
+     */
+    void copySubmatrixWithoutRowAndColumn(int rowToExclude,
+                                          int columnToExclude,
+                                          double submatrixOut[3][3]) const {
+        int submatrixRow = 0;
+        for (int sourceRow = 0; sourceRow < 4; ++sourceRow) {
+            if (sourceRow == rowToExclude) continue;
+            int submatrixCol = 0;
+            for (int sourceCol = 0; sourceCol < 4; ++sourceCol) {
+                if (sourceCol == columnToExclude) continue;
+                submatrixOut[submatrixRow][submatrixCol] = entries[sourceRow][sourceCol];
+                ++submatrixCol;
             }
-            ++rr;
+            ++submatrixRow;
         }
     }
 
-    double m[4][4];
+    /** Os 16 valores da matriz, indexados por entries[linha][coluna]. */
+    double entries[4][4];
 };
 
 #endif

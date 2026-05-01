@@ -139,131 +139,183 @@ static void renderSceneToPpm(const Camera& camera, SceneData& scene, const MeshL
 // CARREGAMENTO E TRANSFORMAÇÃO DE MALHAS (Entrega 2)
 // ============================================================================
 
-/** True se `path` existe no filesystem. */
-static bool fileExists(const std::string& path) {
-    struct stat st;
-    return stat(path.c_str(), &st) == 0;
+/** Verifica se um arquivo existe no filesystem (sem abri-lo). */
+static bool fileExistsAtPath(const std::string& filePath) {
+    struct stat fileStatus;
+    return stat(filePath.c_str(), &fileStatus) == 0;
 }
 
 /**
- * Resolve o caminho de um .obj referenciado pela cena.
+ * Resolve o caminho de um arquivo .obj referenciado pela cena.
  *
- * Os arquivos JSON usam caminhos como "inputs/cubo.obj", "../input/cubo2.obj",
- * "../input/monkey.obj" — relativos ao diretório do JSON, OU à raiz do projeto.
- * Tentamos várias resoluções na ordem mais provável.
+ * Os JSONs da disciplina usam caminhos inconsistentes — "inputs/cubo.obj",
+ * "../input/cubo2.obj", "../input/monkey.obj" — porque foram herdados de
+ * vários projetos diferentes. Tentamos múltiplas estratégias de resolução
+ * antes de desistir:
  *
+ *   1. O caminho literal, relativo ao diretório atual de execução.
+ *   2. Resolvido em relação ao diretório onde o JSON está.
+ *   3. Apenas o nome do arquivo, dentro de `utils/input/`.
+ *   4. Fallback específico: `cubo2.obj` → `cubo.obj` (porque cubo2 não existe
+ *      no repositório, mas várias cenas oficiais o referenciam).
+ *
+ * Devolve o caminho resolvido, ou string vazia se nenhuma estratégia funcionou.
  */
-static std::string resolveObjPath(const std::string& referencedPath, const std::string& sceneJsonPath) {
+static std::string resolveObjPath(const std::string& pathReferencedInJson,
+                                  const std::string& sceneJsonPath) {
     namespace fs = std::filesystem;
 
-    auto tryPath = [](const std::string& p) -> std::string {
-        if (fileExists(p)) return p;
+    auto tryPathOrEmpty = [](const std::string& candidatePath) -> std::string {
+        if (fileExistsAtPath(candidatePath)) return candidatePath;
         return "";
     };
 
-    // 1. Caminho literal (relativo ao cwd).
-    if (auto r = tryPath(referencedPath); !r.empty()) return r;
-
-    // 2. Relativo ao diretório do JSON.
-    fs::path sceneDir = fs::path(sceneJsonPath).parent_path();
-    if (!sceneDir.empty()) {
-        std::string p = (sceneDir / referencedPath).string();
-        if (auto r = tryPath(p); !r.empty()) return r;
+    // Estratégia 1: caminho literal como aparece no JSON.
+    if (auto resolved = tryPathOrEmpty(pathReferencedInJson); !resolved.empty()) {
+        return resolved;
     }
 
-    // 3. Apenas o basename em utils/input/.
-    fs::path basename = fs::path(referencedPath).filename();
-    {
-        std::string p = (fs::path("utils/input") / basename).string();
-        if (auto r = tryPath(p); !r.empty()) return r;
-    }
-
-    if (basename.string() == "cubo2.obj") {
-        std::string p = "utils/input/cubo.obj";
-        if (auto r = tryPath(p); !r.empty()) return r;
-    }
-
-    return "";  // não encontrado
-}
-
-/**
- * Compõe a sequência de transformações de um objeto numa única matriz 4x4.
- *
- * Convenção: a primeira transformação na lista (índice 0) é aplicada PRIMEIRO
- * ao ponto, depois a segunda, e assim por diante. Em forma matricial isso é:
- *     M = T_n · ... · T_2 · T_1
- * Aplicar M·P calcula T_n(...T_2(T_1(P))).
- *
- * Suporta TransformData::tType ∈ {"translation", "scaling", "rotation"}.
- * Para "rotation", o vetor `data` traz (rx, ry, rz) em radianos; aplicamos na
- * ordem X→Y→Z (composição padrão de Euler).
- */
-static Matrix4x4 composeTransforms(const std::vector<TransformData>& transforms) {
-    Matrix4x4 composed = Matrix4x4::identity();
-    for (const auto& t : transforms) {
-        Matrix4x4 step = Matrix4x4::identity();
-        if (t.tType == "translation") {
-            step = Matrix4x4::translation(t.data.getX(), t.data.getY(), t.data.getZ());
-        } else if (t.tType == "scaling") {
-            step = Matrix4x4::scaling(t.data.getX(), t.data.getY(), t.data.getZ());
-        } else if (t.tType == "rotation") {
-            // (rx, ry, rz) em radianos. Composição X→Y→Z: Rz · Ry · Rx.
-            Matrix4x4 rx = Matrix4x4::rotationX(t.data.getX());
-            Matrix4x4 ry = Matrix4x4::rotationY(t.data.getY());
-            Matrix4x4 rz = Matrix4x4::rotationZ(t.data.getZ());
-            step = rz * ry * rx;
+    // Estratégia 2: relativo ao diretório do próprio arquivo JSON.
+    fs::path sceneDirectory = fs::path(sceneJsonPath).parent_path();
+    if (!sceneDirectory.empty()) {
+        std::string candidatePath = (sceneDirectory / pathReferencedInJson).string();
+        if (auto resolved = tryPathOrEmpty(candidatePath); !resolved.empty()) {
+            return resolved;
         }
-        // Pré-multiplica: nova transformação fica MAIS EXTERNA na composição.
-        composed = step * composed;
     }
-    return composed;
+
+    // Estratégia 3: só o basename, dentro de utils/input/.
+    fs::path filenameOnly = fs::path(pathReferencedInJson).filename();
+    {
+        std::string candidatePath = (fs::path("utils/input") / filenameOnly).string();
+        if (auto resolved = tryPathOrEmpty(candidatePath); !resolved.empty()) {
+            return resolved;
+        }
+    }
+
+    // Estratégia 4: fallback específico para um arquivo inexistente referenciado
+    // pelas cenas oficiais (cubo2.obj). Aceitamos cubo.obj como substituto.
+    if (filenameOnly.string() == "cubo2.obj") {
+        std::string fallbackPath = "utils/input/cubo.obj";
+        if (auto resolved = tryPathOrEmpty(fallbackPath); !resolved.empty()) {
+            return resolved;
+        }
+    }
+
+    return "";  // nenhuma estratégia funcionou
 }
 
 /**
- * Carrega todas as malhas referenciadas pela cena, aplica suas transformações
- * e devolve a tabela {ObjectData* → TriangleMesh*} usada pelo dispatcher.
+ * Combina a lista de transformações declaradas no JSON em uma única matriz 4x4.
  *
- * Os TriangleMesh ficam em `meshStorage` (que mantém ownership) — o lookup só
- * armazena ponteiros não-donos. O caller deve manter `meshStorage` vivo enquanto
- * o lookup for usado.
+ * Convenção de ORDEM (importante e fonte clássica de bugs):
+ *   A primeira transformação da lista é aplicada PRIMEIRO ao ponto, depois a
+ *   segunda, e assim por diante. Em forma matricial:
+ *
+ *       matrizFinal = T_n · ... · T_2 · T_1
+ *
+ *   onde T_1 é a primeira da lista. Isso porque, ao aplicar `matrizFinal · ponto`,
+ *   a multiplicação se associa da direita pra esquerda: T_1 atua primeiro.
+ *
+ * Implementação: começamos com a identidade e PRÉ-MULTIPLICAMOS cada nova
+ * transformação (`composta = nova · composta`), o que faz com que a mais recente
+ * fique como mais externa na composição final.
+ *
+ * Tipos suportados (vindos de TransformData::tType):
+ *   "translation" — vetor (dx, dy, dz)
+ *   "scaling"     — fatores (sx, sy, sz)
+ *   "rotation"    — ângulos (rx, ry, rz) em radianos, aplicados na ordem X→Y→Z
+ *                   (convenção XYZ Euler: Rz · Ry · Rx).
+ */
+static Matrix4x4 composeTransforms(const std::vector<TransformData>& transformList) {
+    Matrix4x4 composedMatrix = Matrix4x4::identity();
+    for (const TransformData& currentTransform : transformList) {
+        Matrix4x4 stepMatrix = Matrix4x4::identity();
+        if (currentTransform.tType == "translation") {
+            stepMatrix = Matrix4x4::translation(currentTransform.data.getX(),
+                                                currentTransform.data.getY(),
+                                                currentTransform.data.getZ());
+        } else if (currentTransform.tType == "scaling") {
+            stepMatrix = Matrix4x4::scaling(currentTransform.data.getX(),
+                                            currentTransform.data.getY(),
+                                            currentTransform.data.getZ());
+        } else if (currentTransform.tType == "rotation") {
+            // (rx, ry, rz) em radianos, composição XYZ Euler: aplica X primeiro,
+            // depois Y, depois Z, o que vira Rz·Ry·Rx em notação matricial.
+            Matrix4x4 rotationXMatrix = Matrix4x4::rotationX(currentTransform.data.getX());
+            Matrix4x4 rotationYMatrix = Matrix4x4::rotationY(currentTransform.data.getY());
+            Matrix4x4 rotationZMatrix = Matrix4x4::rotationZ(currentTransform.data.getZ());
+            stepMatrix = rotationZMatrix * rotationYMatrix * rotationXMatrix;
+        }
+        // Pré-multiplica: a transformação que acabamos de ler vira a MAIS EXTERNA,
+        // o que é correto porque a primeira da lista deve ser a MAIS INTERNA
+        // (aplicada primeiro a um ponto).
+        composedMatrix = stepMatrix * composedMatrix;
+    }
+    return composedMatrix;
+}
+
+/**
+ * Carrega todas as malhas referenciadas pela cena, aplica as transformações
+ * declaradas no JSON, e devolve uma tabela `ObjectData* → TriangleMesh*` que o
+ * dispatcher de interseção usa em runtime.
+ *
+ * Ownership: as malhas em si vivem em `meshStorageOwner` (vector de unique_ptrs).
+ * O lookup retornado só guarda ponteiros não-donos. O chamador precisa manter
+ * `meshStorageOwner` vivo enquanto o lookup for usado — caso contrário, os
+ * ponteiros viram "dangling".
  */
 static MeshLookup loadMeshes(SceneData& scene,
                              const std::string& scenePath,
-                             std::vector<std::unique_ptr<TriangleMesh>>& meshStorage) {
-    MeshLookup lookup;
+                             std::vector<std::unique_ptr<TriangleMesh>>& meshStorageOwner) {
+    MeshLookup objectToMeshLookup;
 
-    for (auto& obj : scene.objects) {
-        if (obj.objType != "mesh") continue;
+    for (ObjectData& currentObject : scene.objects) {
+        bool isNotMesh = currentObject.objType != "mesh";
+        if (isNotMesh) continue;
 
-        std::string objPath = resolveObjPath(obj.getProperty("path"), scenePath);
-        if (objPath.empty()) {
-            std::clog << "[mesh] Aviso: .obj não encontrado para "
-                      << obj.getProperty("path") << " — objeto ignorado.\n";
+        std::string resolvedObjPath = resolveObjPath(currentObject.getProperty("path"), scenePath);
+        bool objFileNotFound = resolvedObjPath.empty();
+        if (objFileNotFound) {
+            std::clog << "[mesh] Aviso: arquivo .obj não encontrado para "
+                      << currentObject.getProperty("path")
+                      << " — objeto ignorado.\n";
             continue;
         }
 
-        objReader reader(objPath);
-        auto mesh = std::make_unique<TriangleMesh>(reader, obj.material);
+        // Carrega o .obj e constrói a malha (vértices, faces, normais).
+        objReader meshReader(resolvedObjPath);
+        std::unique_ptr<TriangleMesh> meshForCurrentObject =
+            std::make_unique<TriangleMesh>(meshReader, currentObject.material);
 
-        // Aplica transformações declaradas na cena (translação/escala/rotação).
-        if (!obj.transforms.empty()) {
-            Matrix4x4 composed = composeTransforms(obj.transforms);
-            mesh->applyTransform(composed);
+        // Aplica a sequência de transformações do JSON (translação/escala/rotação).
+        bool hasExplicitTransforms = !currentObject.transforms.empty();
+        if (hasExplicitTransforms) {
+            Matrix4x4 composedTransform = composeTransforms(currentObject.transforms);
+            meshForCurrentObject->applyTransform(composedTransform);
         }
 
-        // relativePos da cena também desloca a malha (translação implícita).
-        if (obj.relativePos.getX() != 0.0 || obj.relativePos.getY() != 0.0 || obj.relativePos.getZ() != 0.0) {
-            Matrix4x4 t = Matrix4x4::translation(obj.relativePos.getX(),
-                                                 obj.relativePos.getY(),
-                                                 obj.relativePos.getZ());
-            mesh->applyTransform(t);
+        // `relativePos` é o campo padrão de "posição" usado por esferas e planos;
+        // para malhas, o tratamos como uma translação adicional aplicada DEPOIS
+        // das transformações da lista. Mantemos para compatibilidade com cenas
+        // que usam relativePos como atalho.
+        bool relativePositionIsNonZero =
+            currentObject.relativePos.getX() != 0.0 ||
+            currentObject.relativePos.getY() != 0.0 ||
+            currentObject.relativePos.getZ() != 0.0;
+        if (relativePositionIsNonZero) {
+            Matrix4x4 relativePosTranslation = Matrix4x4::translation(
+                currentObject.relativePos.getX(),
+                currentObject.relativePos.getY(),
+                currentObject.relativePos.getZ());
+            meshForCurrentObject->applyTransform(relativePosTranslation);
         }
 
-        lookup[&obj] = mesh.get();
-        meshStorage.push_back(std::move(mesh));
+        objectToMeshLookup[&currentObject] = meshForCurrentObject.get();
+        meshStorageOwner.push_back(std::move(meshForCurrentObject));
     }
 
-    return lookup;
+    return objectToMeshLookup;
 }
 
 int main(int argc, char** argv) {
@@ -271,10 +323,13 @@ int main(int argc, char** argv) {
     SceneData scene = loadSceneOrExit(scenePath);
     Camera camera(scene.camera);
 
-    // Carrega as malhas e aplica suas transformações antes do loop de renderização.
+    // Etapa da Entrega 2: antes de começar o loop de render, carregamos todas
+    // as malhas .obj e aplicamos as transformações declaradas no JSON. Os
+    // unique_ptrs em `meshStorage` são donos da memória; `meshLookup` só guarda
+    // ponteiros não-donos para consulta rápida durante a interseção.
     std::vector<std::unique_ptr<TriangleMesh>> meshStorage;
-    MeshLookup meshes = loadMeshes(scene, scenePath, meshStorage);
+    MeshLookup meshLookup = loadMeshes(scene, scenePath, meshStorage);
 
-    renderSceneToPpm(camera, scene, meshes);
+    renderSceneToPpm(camera, scene, meshLookup);
     return 0;
 }

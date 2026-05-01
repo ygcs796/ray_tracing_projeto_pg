@@ -78,7 +78,7 @@ int main() {
         Ray r(Ponto(0, 0, -1), Vetor(0, 0, 1));
         Ponto v0(-1, -1, 0), v1(1, -1, 0), v2(0, 1, 0);
         auto hit = intersectTriangle(r, v0, v1, v2);
-        check("triangle_hit_t1", hit.has_value() && approx(hit->t, 1.0, 1e-9));
+        check("triangle_hit_t1", hit.has_value() && approx(hit->distanceAlongRay, 1.0, 1e-9));
         if (hit.has_value()) {
             check("triangle_hit_baricentricas_validas",
                   hit->alpha >= 0 && hit->beta >= 0 && hit->gamma >= 0 &&
