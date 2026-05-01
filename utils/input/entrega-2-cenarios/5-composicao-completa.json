@@ -1,0 +1,38 @@
+{
+  "globalLight": [0.1, 0.1, 0.1],
+  "materials": {
+    "chao":     { "color": [0.4, 0.4, 0.4], "ka": [0.4, 0.4, 0.4], "ks": [0,0,0], "ns": 10 },
+    "vermelho": { "color": [0.85, 0.20, 0.20], "ka": [0.85, 0.20, 0.20], "ks": [0,0,0], "ns": 10 },
+    "azul":     { "color": [0.20, 0.40, 0.85], "ka": [0.20, 0.40, 0.85], "ks": [0,0,0], "ns": 10 }
+  },
+  "camera": {
+    "lookfrom": [6, 5, 8],
+    "lookat":   [2, 1, 0],
+    "upVector": [0, 1, 0],
+    "image_width": 800,
+    "image_height": 500,
+    "screen_distance": 1.5
+  },
+  "lights": [{ "name": "L", "position": [10, 10, 10], "color": [1,1,1] }],
+  "objects": [
+    { "name": "Chão", "type": "plane", "point_on_plane": [0, -1.5, 0], "normal": [0, 1, 0], "material": "chao" },
+    {
+      "name": "Cubo: escala 1.5x, rotação 45° Y, translação (-2,1,0)",
+      "type": "mesh", "path": "utils/input/cubo.obj", "material": "vermelho",
+      "transform": [
+        { "type": "scaling",     "factors": [1.5, 1.5, 1.5] },
+        { "type": "rotation",    "angle":   [0, 0.7854, 0] },
+        { "type": "translation", "vector":  [-2, 1, 0] }
+      ]
+    },
+    {
+      "name": "Cubo (mesma transformação na ordem invertida — translação primeiro)",
+      "type": "mesh", "path": "utils/input/cubo.obj", "material": "azul",
+      "transform": [
+        { "type": "translation", "vector":  [3, 1, 0] },
+        { "type": "rotation",    "angle":   [0, 0.7854, 0] },
+        { "type": "scaling",     "factors": [1.5, 1.5, 1.5] }
+      ]
+    }
+  ]
+}

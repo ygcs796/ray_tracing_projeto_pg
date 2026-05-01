@@ -1,0 +1,39 @@
+{
+  "globalLight": [0.1, 0.1, 0.1],
+  "materials": {
+    "chao":  { "color": [0.4, 0.4, 0.4], "ka": [0.4, 0.4, 0.4], "ks": [0,0,0], "ns": 10 },
+    "azul":  { "color": [0.20, 0.40, 0.85], "ka": [0.20, 0.40, 0.85], "ks": [0,0,0], "ns": 10 },
+    "verde": { "color": [0.20, 0.75, 0.30], "ka": [0.20, 0.75, 0.30], "ks": [0,0,0], "ns": 10 },
+    "amarelo": { "color": [0.90, 0.75, 0.10], "ka": [0.90, 0.75, 0.10], "ks": [0,0,0], "ns": 10 }
+  },
+  "camera": {
+    "lookfrom": [0, 4, 12],
+    "lookat":   [0, 0, 0],
+    "upVector": [0, 1, 0],
+    "image_width": 900,
+    "image_height": 500,
+    "screen_distance": 1.5
+  },
+  "lights": [{ "name": "L", "position": [10, 10, 10], "color": [1,1,1] }],
+  "objects": [
+    { "name": "Chão", "type": "plane", "point_on_plane": [0, -1.5, 0], "normal": [0, 1, 0], "material": "chao" },
+    {
+      "name": "Cubo na origem (sem transformação)",
+      "type": "mesh", "path": "utils/input/cubo.obj", "material": "azul"
+    },
+    {
+      "name": "Cubo transladado em -X",
+      "type": "mesh", "path": "utils/input/cubo.obj", "material": "verde",
+      "transform": [
+        { "type": "translation", "vector": [-4, 0, 0] }
+      ]
+    },
+    {
+      "name": "Cubo transladado em +X",
+      "type": "mesh", "path": "utils/input/cubo.obj", "material": "amarelo",
+      "transform": [
+        { "type": "translation", "vector": [4, 0, 0] }
+      ]
+    }
+  ]
+}

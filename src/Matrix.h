@@ -115,6 +115,97 @@ public:
         return r;
     }
 
+    /**
+     * Escala em torno de um ponto arbitrário `pivot` (em vez da origem).
+     *
+     * Composição: T(pivot) · S(sx,sy,sz) · T(-pivot).
+     *   1. T(-pivot) leva o pivot para a origem.
+     *   2. S escala em torno da origem.
+     *   3. T(pivot) leva de volta. O pivot fica fixo após a operação.
+     */
+    static Matrix4x4 scalingAroundPoint(double sx, double sy, double sz, const Ponto& pivot) {
+        Matrix4x4 toPivot   = translation( pivot.getX(),  pivot.getY(),  pivot.getZ());
+        Matrix4x4 fromPivot = translation(-pivot.getX(), -pivot.getY(), -pivot.getZ());
+        return toPivot * scaling(sx, sy, sz) * fromPivot;
+    }
+
+    /**
+     * Rotação por ângulo `angleRad` em torno de um eixo arbitrário `axis`
+     * (que passa pela origem). Usa a fórmula de Rodrigues em forma matricial.
+     *
+     * R = I + sinθ · K + (1 - cosθ) · K²
+     *
+     * onde K é a matriz anti-simétrica do produto vetorial com o eixo unitário u:
+     *   |  0  -uz  uy |
+     *   | uz   0  -ux |
+     *   |-uy  ux   0  |
+     *
+     * Se o eixo não passa pela origem, compor com translações antes/depois,
+     * análogo a scalingAroundPoint.
+     */
+    static Matrix4x4 rotationAroundAxis(double angleRad, const Vetor& axis) {
+        Vetor u = axis.normalize();
+        double c = std::cos(angleRad);
+        double s = std::sin(angleRad);
+        double t = 1.0 - c;
+        double ux = u.getX(), uy = u.getY(), uz = u.getZ();
+
+        Matrix4x4 r = identity();
+        r.m[0][0] = c + ux*ux*t;
+        r.m[0][1] = ux*uy*t - uz*s;
+        r.m[0][2] = ux*uz*t + uy*s;
+
+        r.m[1][0] = uy*ux*t + uz*s;
+        r.m[1][1] = c + uy*uy*t;
+        r.m[1][2] = uy*uz*t - ux*s;
+
+        r.m[2][0] = uz*ux*t - uy*s;
+        r.m[2][1] = uz*uy*t + ux*s;
+        r.m[2][2] = c + uz*uz*t;
+        return r;
+    }
+
+    /**
+     * Transformação afim arbitrária a partir de 3 correspondências de pontos.
+     *
+     * Dadas 3 correspondências A→A', B→B', C→C' (não-colineares), constrói a
+     * matriz 4x4 que leva A em A', B em B', C em C'. A 4ª correspondência é
+     * implícita: a origem do sistema afim definido pelos 3 pontos.
+     *
+     * Estratégia: resolvemos 3 sistemas lineares 4x4 (um por linha da matriz
+     * de transformação), cada um com 4 pontos de teste — A, B, C e a "origem"
+     * D = A + (A→A') na convenção de coordenadas baricêntricas estendidas.
+     *
+     * Mais robusto: definir D como qualquer ponto fora do plano ABC. Aqui usamos
+     * D = A + cross(B-A, C-A) (perpendicular ao plano ABC, garante não-coplanar)
+     * com correspondência D' = A' + cross(B'-A', C'-A') (preserva a estrutura
+     * geométrica para transformações afins não-degeneradas).
+     */
+    static Matrix4x4 affineFromCorrespondences(
+        const Ponto& A, const Ponto& B, const Ponto& C,
+        const Ponto& A2, const Ponto& B2, const Ponto& C2)
+    {
+        // 4º ponto: D fora do plano ABC, e D' fora do plano A'B'C'.
+        Vetor nABC = (B - A).cross(C - A);
+        Ponto D  = A + nABC;
+        Vetor nA2B2C2 = (B2 - A2).cross(C2 - A2);
+        Ponto D2 = A2 + nA2B2C2;
+
+        // Sistema: M · src_i = dst_i, com src_i e dst_i em coordenadas homogêneas.
+        // Montamos a matriz Source 4x4 (colunas = A,B,C,D em homogêneas) e
+        // resolvemos M = Dest · Source⁻¹.
+        Matrix4x4 srcM, dstM;
+        auto fillCol = [](Matrix4x4& mat, int col, const Ponto& p) {
+            mat.m[0][col] = p.getX();
+            mat.m[1][col] = p.getY();
+            mat.m[2][col] = p.getZ();
+            mat.m[3][col] = 1.0;
+        };
+        fillCol(srcM, 0, A);  fillCol(srcM, 1, B);  fillCol(srcM, 2, C);  fillCol(srcM, 3, D);
+        fillCol(dstM, 0, A2); fillCol(dstM, 1, B2); fillCol(dstM, 2, C2); fillCol(dstM, 3, D2);
+        return dstM * srcM.inverse();
+    }
+
     // ========================================================================
     // OPERAÇÕES
     // ========================================================================
