@@ -14,6 +14,9 @@
 #include "../src/Ray.h"
 #include "../src/Intersect.h"
 
+// declarando aqui
+#define M_PI		3.14159265358979323846
+
 static int passed = 0, failed = 0;
 
 static bool approx(double a, double b, double tol = 1e-9) {
