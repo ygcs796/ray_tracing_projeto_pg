@@ -24,8 +24,9 @@
 #include "Mesh.h"
 #include "../utils/Scene/sceneSchema.hpp"
 
-// O equivalente a "> 0", mas tem cenários que é necessário por conta da precisão do double
-constexpr double INTERSECT_EPSILON = 1e-6;
+// Um número extremamente pequeno
+// O equivalente a falarmos "> 0", mas tem cenários que é necessário por conta da precisão do double
+constexpr double INTERSECT_EPSILON = 1e-6; 
 
 // ============================================================================
 // RAIO-ESFERA
@@ -274,15 +275,6 @@ struct MeshHit {
 /**
  * Testa o raio contra TODAS as faces da malha (algoritmo "brute force" O(F))
  * e devolve a interseção mais próxima.
- *
- * Para malhas pequenas (12 faces no cubo) o custo é desprezível. Para o monkey
- * (~967 faces), 1920×1080 pixels resultam em ~2×10⁹ testes — mas o C++ otimizado
- * lida com isso em ~8 segundos.
- *
- * Otimizações possíveis (não implementadas, mas no checklist "Feature difícil"):
- *   - Bounding box envolvendo a malha: se o raio nem toca a caixa, pula a malha inteira.
- *   - BVH (Bounding Volume Hierarchy): reduz custo a O(log F).
- *   - Octree: subdivisão espacial recursiva.
  */
 inline std::optional<MeshHit> intersectMesh(const Ray& ray, const TriangleMesh& mesh) {
     std::optional<MeshHit> closestHit;
