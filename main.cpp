@@ -318,15 +318,110 @@ static MeshLookup loadMeshes(SceneData& scene,
     return objectToMeshLookup;
 }
 
+/**
+ * Aplica as transformações declaradas no JSON ao centro e raio de uma ESFERA.
+ *
+ * Suporte (conforme orientação do monitor):
+ *   - Translação: soma (dx, dy, dz) ao centro.
+ *   - Rotação:    aplica a matriz ao centro como ponto. (Visualmente, rotacionar
+ *                 uma esfera em torno do próprio centro não muda nada — mas se
+ *                 a rotação for em torno da origem do mundo, o centro se move.)
+ *   - Escala:     uniforme. Pegamos o primeiro componente do vetor `factors`
+ *                 e aplicamos ao raio. Centro também é escalado como ponto.
+ *
+ * Como a escala é uniforme, dá pra compor T·R·S em uma matriz só, aplicar ao
+ * centro e tratar o raio separadamente (multiplicando pelo fator escalar).
+ */
+static void applyTransformsToSphere(ObjectData& sphereObject) {
+    if (sphereObject.transforms.empty()) return;
+
+    // Calcula o fator escalar uniforme (primeiro componente de qualquer "scaling").
+    double uniformScaleFactor = 1.0;
+    for (const TransformData& currentTransform : sphereObject.transforms) {
+        if (currentTransform.tType == "scaling") {
+            uniformScaleFactor *= currentTransform.data.getX();
+        }
+    }
+
+    // Aplica T·R·S ao centro como ponto (a escala uniforme aqui é equivalente
+    // a multiplicar todas as coordenadas pelo mesmo fator, então casa com a
+    // multiplicação do raio que faremos depois).
+    Matrix4x4 composedTransform = composeTransforms(sphereObject.transforms);
+    Ponto originalCenter        = sphereObject.getPonto("center");
+    Ponto transformedCenter     = composedTransform.transformPoint(originalCenter);
+
+    // Escreve o novo centro de volta no ObjectData (o parser guarda como Vetor).
+    sphereObject.vetorPointData["center"] = Vetor(
+        transformedCenter.getX(),
+        transformedCenter.getY(),
+        transformedCenter.getZ());
+
+    // Aplica o fator escalar ao raio.
+    double originalRadius = sphereObject.getNum("radius");
+    sphereObject.numericData["radius"] = originalRadius * uniformScaleFactor;
+}
+
+/**
+ * Aplica as transformações declaradas no JSON ao ponto-de-referência e à
+ * normal de um PLANO.
+ *
+ * Suporte (conforme orientação do monitor):
+ *   - Translação: translada o ponto do plano (relativePos). A normal não muda.
+ *   - Rotação:    rotaciona a normal e também o ponto.
+ *   - Escala:     IGNORADA. Escalar um plano infinito não muda nada visualmente.
+ *
+ * Implementação: filtramos as transformações da lista para descartar `scaling`,
+ * compomos o resto em uma única matriz, e aplicamos ao ponto e à normal.
+ */
+static void applyTransformsToPlane(ObjectData& planeObject) {
+    if (planeObject.transforms.empty()) return;
+
+    // Filtra fora as transformações de escala (planos não escalam).
+    std::vector<TransformData> filteredTransforms;
+    for (const TransformData& currentTransform : planeObject.transforms) {
+        if (currentTransform.tType != "scaling") {
+            filteredTransforms.push_back(currentTransform);
+        }
+    }
+    if (filteredTransforms.empty()) return;
+
+    Matrix4x4 composedTransform = composeTransforms(filteredTransforms);
+
+    // Transforma o ponto do plano (que vive em relativePos para "type":"plane").
+    Ponto transformedPointOnPlane = composedTransform.transformPoint(planeObject.relativePos);
+    planeObject.relativePos = transformedPointOnPlane;
+
+    // Transforma a normal. Como só temos translação + rotação aqui (escala foi
+    // filtrada), a matriz é ortogonal na parte 3x3 e usar transformVector é
+    // equivalente a (M⁻¹)ᵀ — mais simples e barato.
+    Vetor originalNormal      = planeObject.getVetor("normal");
+    Vetor transformedNormal   = composedTransform.transformVector(originalNormal).normalize();
+    planeObject.vetorPointData["normal"] = transformedNormal;
+}
+
+/**
+ * Itera sobre os objetos da cena aplicando transformações em esferas e planos
+ * (malhas são tratadas separadamente em `loadMeshes` porque exigem carregar
+ * o .obj antes de transformar os vértices).
+ */
+static void applyTransformsToSpheresAndPlanes(SceneData& scene) {
+    for (ObjectData& currentObject : scene.objects) {
+        if      (currentObject.objType == "sphere") applyTransformsToSphere(currentObject);
+        else if (currentObject.objType == "plane")  applyTransformsToPlane(currentObject);
+    }
+}
+
 int main(int argc, char** argv) {
     std::string scenePath = resolveScenePath(argc, argv);
     SceneData scene = loadSceneOrExit(scenePath);
     Camera camera(scene.camera);
 
-    // Etapa da Entrega 2: antes de começar o loop de render, carregamos todas
-    // as malhas .obj e aplicamos as transformações declaradas no JSON. Os
-    // unique_ptrs em `meshStorage` são donos da memória; `meshLookup` só guarda
-    // ponteiros não-donos para consulta rápida durante a interseção.
+    // Etapa da Entrega 2: antes de começar o loop de render, processamos todas
+    // as transformações declaradas no JSON.
+    //   - Esferas e planos: alteramos centro/raio/ponto/normal in-place.
+    //   - Malhas: carregamos o .obj, construímos TriangleMesh, e aplicamos as
+    //     transformações aos vértices.
+    applyTransformsToSpheresAndPlanes(scene);
     std::vector<std::unique_ptr<TriangleMesh>> meshStorage;
     MeshLookup meshLookup = loadMeshes(scene, scenePath, meshStorage);
 
