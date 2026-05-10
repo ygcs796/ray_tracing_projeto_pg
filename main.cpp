@@ -193,10 +193,16 @@ static std::string resolveObjPath(const std::string& pathReferencedInJson,
         }
     }
 
-    // Estratégia 4: fallback específico para um arquivo inexistente referenciado
-    // pelas cenas oficiais (cubo2.obj). Aceitamos cubo.obj como substituto.
+    // Estratégia 4: fallbacks específicos para arquivos referenciados nos JSONs
+    // do monitor mas que têm nome diferente no nosso repositório.
     if (filenameOnly.string() == "cubo2.obj") {
         std::string fallbackPath = "utils/input/cubo.obj";
+        if (auto resolved = tryPathOrEmpty(fallbackPath); !resolved.empty()) {
+            return resolved;
+        }
+    }
+    if (filenameOnly.string() == "macaco.obj") {
+        std::string fallbackPath = "utils/input/monkey.obj";
         if (auto resolved = tryPathOrEmpty(fallbackPath); !resolved.empty()) {
             return resolved;
         }
@@ -224,10 +230,13 @@ static std::string resolveObjPath(const std::string& pathReferencedInJson,
  * Tipos suportados (vindos de TransformData::tType):
  *   "translation" — vetor (dx, dy, dz)
  *   "scaling"     — fatores (sx, sy, sz)
- *   "rotation"    — ângulos (rx, ry, rz) em radianos, aplicados na ordem X→Y→Z
- *                   (convenção XYZ Euler: Rz · Ry · Rx).
+ *   "rotation"    — ângulos (rx, ry, rz) em GRAUS, aplicados na ordem X→Y→Z
+ *                   (convenção XYZ Euler: Rz · Ry · Rx). Convertemos para
+ *                   radianos antes de chamar as factories da Matrix4x4.
  */
 static Matrix4x4 composeTransforms(const std::vector<TransformData>& transformList) {
+    constexpr double PI = 3.14159265358979323846;
+
     Matrix4x4 composedMatrix = Matrix4x4::identity();
     for (const TransformData& currentTransform : transformList) {
         Matrix4x4 stepMatrix = Matrix4x4::identity();
@@ -240,11 +249,15 @@ static Matrix4x4 composeTransforms(const std::vector<TransformData>& transformLi
                                             currentTransform.data.getY(),
                                             currentTransform.data.getZ());
         } else if (currentTransform.tType == "rotation") {
-            // (rx, ry, rz) em radianos, composição XYZ Euler: aplica X primeiro,
-            // depois Y, depois Z, o que vira Rz·Ry·Rx em notação matricial.
-            Matrix4x4 rotationXMatrix = Matrix4x4::rotationX(currentTransform.data.getX());
-            Matrix4x4 rotationYMatrix = Matrix4x4::rotationY(currentTransform.data.getY());
-            Matrix4x4 rotationZMatrix = Matrix4x4::rotationZ(currentTransform.data.getZ());
+            // (rx, ry, rz) em GRAUS — convertemos para radianos.
+            double angleXRad = currentTransform.data.getX() * PI / 180.0;
+            double angleYRad = currentTransform.data.getY() * PI / 180.0;
+            double angleZRad = currentTransform.data.getZ() * PI / 180.0;
+            // Composição XYZ Euler: aplica X primeiro, depois Y, depois Z,
+            // o que vira Rz·Ry·Rx em notação matricial.
+            Matrix4x4 rotationXMatrix = Matrix4x4::rotationX(angleXRad);
+            Matrix4x4 rotationYMatrix = Matrix4x4::rotationY(angleYRad);
+            Matrix4x4 rotationZMatrix = Matrix4x4::rotationZ(angleZRad);
             stepMatrix = rotationZMatrix * rotationYMatrix * rotationXMatrix;
         }
         // Pré-multiplica: a transformação que acabamos de ler vira a MAIS EXTERNA,
@@ -253,6 +266,26 @@ static Matrix4x4 composeTransforms(const std::vector<TransformData>& transformLi
         composedMatrix = stepMatrix * composedMatrix;
     }
     return composedMatrix;
+}
+
+// Constrói MaterialData a partir do .mtl lido pelo objReader.
+static MaterialData buildMaterialFromMtl(objReader& reader) {
+    Vetor kd = reader.getKd();
+    Vetor ks = reader.getKs();
+    Vetor ka = reader.getKa();
+    Vetor ke = reader.getKe();
+
+    MaterialData mat;
+    mat.name  = "from_mtl";
+    mat.color = ColorData(kd.getX(), kd.getY(), kd.getZ());
+    mat.ks    = ColorData(ks.getX(), ks.getY(), ks.getZ());
+    mat.ka    = ColorData(ka.getX(), ka.getY(), ka.getZ());
+    mat.kr    = ColorData(ke.getX(), ke.getY(), ke.getZ());
+    mat.kt    = ColorData(0, 0, 0);
+    mat.ns    = reader.getNs();
+    mat.ni    = reader.getNi();
+    mat.d     = reader.getD();
+    return mat;
 }
 
 /**
@@ -283,10 +316,14 @@ static MeshLookup loadMeshes(SceneData& scene,
             continue;
         }
 
-        // Carrega o .obj e constrói a malha (vértices, faces, normais).
+        // Carrega o .obj e pega o material do .mtl associado.
+        // Material da mesh sempre vem do .mtl, nunca do JSON da cena.
         objReader meshReader(resolvedObjPath);
+        MaterialData materialFromMtl = buildMaterialFromMtl(meshReader);
+        currentObject.material = materialFromMtl;
+
         std::unique_ptr<TriangleMesh> meshForCurrentObject =
-            std::make_unique<TriangleMesh>(meshReader, currentObject.material);
+            std::make_unique<TriangleMesh>(meshReader, materialFromMtl);
 
         // Aplica a sequência de transformações do JSON (translação/escala/rotação).
         bool hasExplicitTransforms = !currentObject.transforms.empty();

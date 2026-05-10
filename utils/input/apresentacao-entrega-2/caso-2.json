@@ -1,0 +1,50 @@
+{
+  "globalLight": [0.1, 0.1, 0.1],
+
+  "materials": {
+    "chao": {
+      "color": [0.2, 0.5, 0.8],
+      "ka": [0.2, 0.5, 0.8],
+      "ks": [0.0, 0.0, 0.0],
+      "ns": 10
+    }
+  },
+
+  "camera": {
+    "lookfrom": [-2.34, 7.34, 56.87],
+    "lookat": [-1.30, 7.50, 29.35],
+    "upVector": [0, 1, 0],
+    "image_width": 600,
+    "image_height": 600,
+    "screen_distance": 1.0
+  },
+
+  "objects": [
+    {
+      "type": "plane",
+      "point_on_plane": [0, 0, 0],
+      "normal": [0, 1, 0],
+      "material": "chao"
+    },
+    {
+      "type": "mesh",
+      "relativePos": [0.0000, 5.0000, 0.0000],
+      "path": "utils/input/cubo.obj",
+      "transform": [
+          { "type": "scaling", "factors": [10, 10, 10] },
+          { "type": "rotation", "angle": [0, 0, 0] },
+          { "type": "translation", "vector": [0, 10, 0] }
+      ]
+    },
+    {
+      "type": "mesh",
+      "relativePos": [0.0000, 5.0000, 0.0000],
+      "path": "utils/input/macaco.obj",
+      "transform": [
+          { "type": "scaling", "factors": [5, 5, 5] },
+          { "type": "rotation", "angle": [0, 0, 0] },
+          { "type": "translation", "vector": [0, 10, 0] }
+      ]
+    }
+  ]
+}
