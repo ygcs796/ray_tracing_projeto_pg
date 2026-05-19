@@ -369,4 +369,106 @@ inline std::optional<double> intersect(const Ray& ray,
     return std::nullopt;
 }
 
+// ============================================================================
+// HIT RECORD  (Entrega 3 — Phong precisa de ponto + normal + material)
+// ============================================================================
+
+/**
+ * Resultado completo de uma interseção raio-objeto, com tudo o que o modelo de
+ * Phong precisa para sombrear o ponto:
+ *
+ *   t        — parâmetro do raio (distância em unidades de mundo, já que a
+ *              direção é unitária).
+ *   point    — ponto de interseção P = O + t*D no mundo.
+ *   normal   — normal unitária da superfície em P. Para esferas vem de
+ *              (P - centro); para planos é a normal fornecida; para malhas é
+ *              a normal da face atingida.
+ *   material — propriedades do material (ka, kd, ks, ns, ...) do objeto
+ *              atingido. Copiamos por valor porque Phong vai ler vários
+ *              campos e queremos desacoplar do ObjectData.
+ *
+ * Por que juntar tudo num só struct? O dispatcher de interseção visita cada
+ * objeto uma única vez por raio primário; queremos extrair P, N e o material
+ * NO MESMO momento em que t é calculado, sem precisar redescobrir qual objeto
+ * foi atingido lá no shading. Isso também evita refazer cross products /
+ * subtrações para recuperar a normal.
+ */
+struct HitRecord {
+    double       t;
+    Ponto        point;
+    Vetor        normal;
+    MaterialData material;
+};
+
+/**
+ * Interseção raio-esfera retornando HitRecord completo. Reutiliza
+ * `intersectSphere` para o cálculo de t e reconstrói a normal a partir
+ * de N = normalize(P - C).
+ */
+inline std::optional<HitRecord> intersectSphereHit(const Ray& ray, ObjectData& obj) {
+    Ponto  sphereCenter = obj.getPonto("center");
+    double sphereRadius = obj.getNum("radius");
+    auto t = intersectSphere(ray, sphereCenter, sphereRadius);
+    if (!t.has_value()) return std::nullopt;
+
+    Ponto P = ray.at(*t);
+    // Para esfera, a normal aponta do centro radialmente para fora — então
+    // N = (P - C) / r. Dividir por r ou normalizar dá o mesmo resultado, mas
+    // normalize() é robusto a pequenos erros numéricos.
+    Vetor N = (P - sphereCenter).normalize();
+    return HitRecord{ *t, P, N, obj.material };
+}
+
+/**
+ * Interseção raio-plano retornando HitRecord. A normal já vem do JSON;
+ * apenas normalizamos por segurança caso o usuário tenha passado uma
+ * normal de magnitude diferente de 1.
+ */
+inline std::optional<HitRecord> intersectPlaneHit(const Ray& ray, ObjectData& obj) {
+    Ponto pointOnPlane = obj.relativePos;
+    Vetor planeNormal  = obj.getVetor("normal");
+    auto t = intersectPlane(ray, pointOnPlane, planeNormal);
+    if (!t.has_value()) return std::nullopt;
+
+    Ponto P = ray.at(*t);
+    Vetor N = planeNormal.normalize();
+    return HitRecord{ *t, P, N, obj.material };
+}
+
+/**
+ * Interseção raio-malha retornando HitRecord. A normal é a normal da face
+ * (flat shading). Smooth shading via baricêntricas exigiria interpolar
+ * `vertexNormals` — ficaria para uma melhoria futura.
+ */
+inline std::optional<HitRecord> intersectMeshHit(const Ray& ray,
+                                                 const ObjectData& obj,
+                                                 const MeshLookup& preloadedMeshes) {
+    auto it = preloadedMeshes.find(&obj);
+    if (it == preloadedMeshes.end()) return std::nullopt;
+    const TriangleMesh& mesh = *it->second;
+
+    std::optional<MeshHit> meshHit = intersectMesh(ray, mesh);
+    if (!meshHit.has_value()) return std::nullopt;
+
+    Ponto P = ray.at(meshHit->distanceAlongRay);
+    Vetor N = mesh.getFaceNormals()[meshHit->hitFaceIndex];
+    // Material da malha vem do .mtl (armazenado no próprio ObjectData via
+    // buildMaterialFromMtl no main.cpp). Preferimos esse caminho a usar
+    // mesh.getMaterial() para manter consistência com o dispatcher.
+    return HitRecord{ meshHit->distanceAlongRay, P, N, obj.material };
+}
+
+/**
+ * Dispatcher do HitRecord: igual ao `intersect` mas retorna dados completos
+ * (t, ponto, normal, material). Usado para raios primários no shading de Phong.
+ */
+inline std::optional<HitRecord> intersectHit(const Ray& ray,
+                                             ObjectData& objectFromScene,
+                                             const MeshLookup& preloadedMeshes) {
+    if (objectFromScene.objType == "sphere") return intersectSphereHit(ray, objectFromScene);
+    if (objectFromScene.objType == "plane")  return intersectPlaneHit(ray, objectFromScene);
+    if (objectFromScene.objType == "mesh")   return intersectMeshHit(ray, objectFromScene, preloadedMeshes);
+    return std::nullopt;
+}
+
 #endif

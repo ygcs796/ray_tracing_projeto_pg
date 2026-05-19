@@ -1,8 +1,9 @@
 /**
  * Lê uma cena JSON, lança um raio primário da câmera para cada pixel, testa
- * interseção com os objetos (esferas e planos) e pinta o pixel com a cor
- * difusa (kd) do objeto mais próximo atingido. Sem iluminação, sombras ou
- * reflexões — apenas ray-casting bruto.
+ * interseção com os objetos (esferas, planos e malhas) e pinta o pixel pela
+ * iluminação local de Phong (ambiente + difusa + especular + sombras).
+ *
+ * Reflexões e refrações (Entrega 4) ainda não entram.
  */
 
 #include <iostream>
@@ -19,15 +20,10 @@
 #include "src/Intersect.h"
 #include "src/Mesh.h"
 #include "src/Matrix.h"
+#include "src/Phong.h"
 #include "utils/Scene/sceneParser.cpp"
 
 static const std::string DEFAULT_SCENE_PATH = "utils/input/sampleScene.json";
-
-/** Resultado da busca do objeto mais próximo atingido por um raio. */
-struct ClosestHit {
-    const ObjectData* hitObject;       // ponteiro para o objeto atingido (nullptr se nenhum)
-    double            distanceAlongRay; // parâmetro t da interseção (+∞ se nenhum)
-};
 
 /** Tripla de cor em [0, 255] pronta para impressão no PPM. */
 struct PixelColor {
@@ -63,13 +59,13 @@ static PixelColor backgroundColor() {
     return PixelColor { 0, 0, 0 };
 }
 
-/** Converte a cor difusa (kd) do objeto para a tripla de bytes do PPM. */
-static PixelColor objectDiffuseColorAsPixel(const ObjectData* hitObject) {
-    const ColorData& diffuseColor = hitObject->material.color;
+/** Converte uma cor RGB em ponto flutuante [0,1] para a tripla de bytes
+ *  [0,255] esperada pelo PPM. */
+static PixelColor rgbToPixel(const RGB& color) {
     return PixelColor {
-        normalizedColorToByte(diffuseColor.r),
-        normalizedColorToByte(diffuseColor.g),
-        normalizedColorToByte(diffuseColor.b)
+        normalizedColorToByte(color.r),
+        normalizedColorToByte(color.g),
+        normalizedColorToByte(color.b)
     };
 }
 
@@ -83,27 +79,44 @@ static void writePixel(const PixelColor& pixel) {
 }
 
 /**
- * Varre todos os objetos da cena e retorna o mais próximo atingido pelo raio
- * (menor t > ε). Se nenhum for atingido, hitObject == nullptr.
+ * Varre todos os objetos da cena e devolve o HitRecord do mais próximo
+ * atingido pelo raio (menor t > ε). Se nenhum for atingido, devolve nullopt.
+ *
+ * Diferente da Entrega 1/2 (que devolvia só t + ponteiro pro objeto), agora
+ * carregamos ponto + normal + material no próprio resultado — é o que o Phong
+ * precisa para sombrear sem precisar redescobrir geometria depois.
  */
-static ClosestHit findClosestHit(const Ray& ray, SceneData& scene, const MeshLookup& meshes) {
-    // tMax ( dinâmico )
-    ClosestHit result = { nullptr, std::numeric_limits<double>::infinity() };
+static std::optional<HitRecord> findClosestHit(const Ray& ray,
+                                               SceneData& scene,
+                                               const MeshLookup& meshes) {
+    std::optional<HitRecord> closest;
+    double closestT = std::numeric_limits<double>::infinity();
 
-    for (auto& candidateObject : scene.objects) {
-        auto intersectionParameter = intersect(ray, candidateObject, meshes);
-        if (intersectionParameter.has_value() && *intersectionParameter < result.distanceAlongRay) {
-            result.hitObject = &candidateObject;
-            result.distanceAlongRay = *intersectionParameter;
+    for (ObjectData& candidateObject : scene.objects) {
+        std::optional<HitRecord> hitFromThisObject =
+            intersectHit(ray, candidateObject, meshes);
+        bool isCloserThanCurrentBest =
+            hitFromThisObject.has_value() && hitFromThisObject->t < closestT;
+        if (isCloserThanCurrentBest) {
+            closestT = hitFromThisObject->t;
+            closest  = hitFromThisObject;
         }
     }
-    return result;
+    return closest;
 }
 
-/** Decide a cor do pixel com base no resultado da busca. */
-static PixelColor shadePixel(const ClosestHit& hit) {
-    if (hit.hitObject == nullptr) return backgroundColor();
-    return objectDiffuseColorAsPixel(hit.hitObject);
+/**
+ * Decide a cor do pixel: se o raio não atingiu nada, devolve o fundo;
+ * caso contrário, avalia a equação de Phong (ambiente + difusa + especular,
+ * com sombras) e converte para bytes [0,255].
+ */
+static PixelColor shadePixel(const Ray& primaryRay,
+                             const std::optional<HitRecord>& hit,
+                             SceneData& scene,
+                             const MeshLookup& meshes) {
+    if (!hit.has_value()) return backgroundColor();
+    RGB color = computeColor(*hit, primaryRay, scene, scene.objects, meshes);
+    return rgbToPixel(color);
 }
 
 /** Gera o raio do pixel, encontra o objeto mais próximo e devolve a cor. */
@@ -113,8 +126,8 @@ static PixelColor renderSinglePixel(const Camera& camera,
                                     int pixelColumn,
                                     int pixelRow) {
     Ray primaryRay = camera.generateRay(pixelColumn, pixelRow);
-    ClosestHit hit = findClosestHit(primaryRay, scene, meshes);
-    return shadePixel(hit);
+    std::optional<HitRecord> hit = findClosestHit(primaryRay, scene, meshes);
+    return shadePixel(primaryRay, hit, scene, meshes);
 }
 
 /**
