@@ -36,15 +36,18 @@ if not exist "%SCENE%" (
 if not exist "%OUT_DIR%" mkdir "%OUT_DIR%"
 
 REM ---------------------------------------------------------------------------
-REM Compilação (se binário não existir)
+REM Compilação (sempre recompila)
 REM ---------------------------------------------------------------------------
-if not exist raytracer.exe (
-    echo [render] Compilando raytracer...
-    g++ -std=c++17 -O2 main.cpp -o raytracer.exe
-    if errorlevel 1 (
-        echo [render] Erro na compilacao 1>&2
-        exit /b 1
-    )
+REM Recompilamos SEMPRE, e não apenas "se o exe não existe". O build leva
+REM poucos segundos e isso elimina o bug clássico de renderizar com um binário
+REM velho — por exemplo, ficar gerando imagens sem Phong (Entrega 3) porque o
+REM raytracer.exe ainda era o da Entrega 2. (No render.sh isso é resolvido
+REM comparando datas dos fontes; aqui preferimos a simplicidade de sempre buildar.)
+echo [render] Compilando raytracer...
+g++ -std=c++17 -O2 main.cpp -o raytracer.exe
+if errorlevel 1 (
+    echo [render] Erro na compilacao 1>&2
+    exit /b 1
 )
 
 REM ---------------------------------------------------------------------------

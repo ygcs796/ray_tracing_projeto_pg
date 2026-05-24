@@ -30,13 +30,15 @@ $PNG  = Join-Path $OutDir "$Base.png"
 if (-not (Test-Path $OutDir)) { New-Item -ItemType Directory -Path $OutDir | Out-Null }
 
 # ---------------------------------------------------------------------------
-# Compilação (se binário não existir)
+# Compilação (sempre recompila)
 # ---------------------------------------------------------------------------
-if (-not (Test-Path "raytracer.exe")) {
-    Write-Host "[render] Compilando raytracer..."
-    g++ -std=c++17 -O2 main.cpp -o raytracer.exe
-    if ($LASTEXITCODE -ne 0) { Write-Error "Falha na compilação"; exit 1 }
-}
+# Recompilamos SEMPRE, não apenas "se o exe não existe". O build leva poucos
+# segundos e elimina o bug clássico de renderizar com binário velho — por
+# exemplo, gerar imagens sem Phong (Entrega 3) porque o raytracer.exe ainda
+# era o da Entrega 2.
+Write-Host "[render] Compilando raytracer..."
+g++ -std=c++17 -O2 main.cpp -o raytracer.exe
+if ($LASTEXITCODE -ne 0) { Write-Error "Falha na compilação"; exit 1 }
 
 # ---------------------------------------------------------------------------
 # Renderização
