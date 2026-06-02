@@ -67,14 +67,18 @@ private:
      *   up       aponta para cima (perpendicular a right e backward).
      */
     void computeOrthonormalBasis(const Ponto& targetPoint, const Vetor& upVector) {
-        // (C - M) -> Produz um vetor que sai do alvo e chega na câmera
-        backward = (cameraPosition - targetPoint).normalize(); // Target Point = lookAt no JSON
-        // Nota 16/04/2026: a ordem do cross foi invertida em relação à convenção literal
-        // das anotações da disciplina (Vup × W, W × U), que gera imagem espelhada
-        // horizontalmente em cenas olhando para -Z. Com a ordem atual, a parede vermelha
-        // do Cornell Box aparece à esquerda e a verde à direita.
-        right    = backward.cross(upVector).normalize();
-        up       = right.cross(backward);  // já unitário (right ⊥ backward, ambos unitários)
+        // Convenção literal das anotações da disciplina:
+        //   W = normalize(C - M)   — aponta "para trás" da câmera (nosso `backward`)
+        //   U = normalize(Vup × W) — aponta "para a direita" da câmera (nosso `right`)
+        //   V = W × U              — aponta "para cima" da câmera (nosso `up`)
+        //
+        // Importante: a ordem do cross em `right` (Vup × W e não W × Vup) determina o
+        // sentido do eixo horizontal da câmera. Invertê-la espelha a imagem
+        // horizontalmente — o que faz objetos em +x aparecerem à esquerda da tela
+        // em vez de à direita.
+        backward = (cameraPosition - targetPoint).normalize();
+        right    = upVector.cross(backward).normalize();
+        up       = backward.cross(right);  // já unitário (right ⊥ backward, ambos unitários)
     }
 
     /** Tamanho de um pixel no mundo. A tela virtual tem largura 1. */
