@@ -79,43 +79,27 @@ static void writePixel(const PixelColor& pixel) {
 }
 
 /**
- * Varre todos os objetos da cena e devolve o HitRecord do mais próximo
- * atingido pelo raio (menor t > ε). Se nenhum for atingido, devolve nullopt.
- *
- * Diferente da Entrega 1/2 (que devolvia só t + ponteiro pro objeto), agora
- * carregamos ponto + normal + material no próprio resultado — é o que o Phong
- * precisa para sombrear sem precisar redescobrir geometria depois.
+ * Profundidade máxima da recursão de reflexão/refração. Cada raio
+ * secundário (refletido ou refratado) decrementa esse contador; ao chegar a 0,
+ * computeColor devolve preto. 3 níveis é a recomendação do monitor — suficiente
+ * para ver reflexos mútuos decrescentes sem custo alto.
  */
-static std::optional<HitRecord> findClosestHit(const Ray& ray,
-                                               SceneData& scene,
-                                               const MeshLookup& meshes) {
-    std::optional<HitRecord> closest;
-    double closestT = std::numeric_limits<double>::infinity();
-
-    for (ObjectData& candidateObject : scene.objects) {
-        std::optional<HitRecord> hitFromThisObject =
-            intersectHit(ray, candidateObject, meshes);
-        bool isCloserThanCurrentBest =
-            hitFromThisObject.has_value() && hitFromThisObject->t < closestT;
-        if (isCloserThanCurrentBest) {
-            closestT = hitFromThisObject->t;
-            closest  = hitFromThisObject;
-        }
-    }
-    return closest;
-}
+static constexpr int MAX_DEPTH = 3;
 
 /**
  * Decide a cor do pixel: se o raio não atingiu nada, devolve o fundo;
  * caso contrário, avalia a equação de Phong (ambiente + difusa + especular,
- * com sombras) e converte para bytes [0,255].
+ * com sombras + reflexão e refração recursivas) e converte para bytes [0,255].
+ *
+ * `findClosestHit` mora em Intersect.h (é compartilhada com os raios secundários
+ * recursivos do Phong) e recebe o vetor de objetos diretamente.
  */
 static PixelColor shadePixel(const Ray& primaryRay,
                              const std::optional<HitRecord>& hit,
                              SceneData& scene,
                              const MeshLookup& meshes) {
     if (!hit.has_value()) return backgroundColor();
-    RGB color = computeColor(*hit, primaryRay, scene, scene.objects, meshes);
+    RGB color = computeColor(*hit, primaryRay, scene, scene.objects, meshes, MAX_DEPTH);
     return rgbToPixel(color);
 }
 
@@ -126,7 +110,7 @@ static PixelColor renderSinglePixel(const Camera& camera,
                                     int pixelColumn,
                                     int pixelRow) {
     Ray primaryRay = camera.generateRay(pixelColumn, pixelRow);
-    std::optional<HitRecord> hit = findClosestHit(primaryRay, scene, meshes);
+    std::optional<HitRecord> hit = findClosestHit(primaryRay, scene.objects, meshes);
     return shadePixel(primaryRay, hit, scene, meshes);
 }
 

@@ -17,6 +17,7 @@
 #include <optional>
 #include <cmath>
 #include <map>
+#include <vector>
 #include <limits>
 #include "Ray.h"
 #include "Ponto.h"
@@ -469,6 +470,37 @@ inline std::optional<HitRecord> intersectHit(const Ray& ray,
     if (objectFromScene.objType == "plane")  return intersectPlaneHit(ray, objectFromScene);
     if (objectFromScene.objType == "mesh")   return intersectMeshHit(ray, objectFromScene, preloadedMeshes);
     return std::nullopt;
+}
+
+/**
+ * Varre todos os objetos da cena e devolve o HitRecord do mais próximo atingido
+ * pelo raio (menor t). Devolve std::nullopt se nenhum objeto for atingido.
+ *
+ * Mora aqui (e não no main) porque é usada em DOIS lugares: pelo raio primário
+ * de cada pixel (main.cpp) e pelos raios secundários recursivos de reflexão e
+ * refração (computeColor em Phong.h, na Entrega 4). Recebe o vetor de objetos
+ * diretamente em vez do SceneData inteiro para servir aos dois chamadores.
+ *
+ * @param ray      Raio a testar (primário ou secundário).
+ * @param objects  Lista de objetos da cena (esferas, planos, malhas).
+ * @param meshes   Tabela de malhas pré-carregadas (mapa vazio se a cena não tem malhas).
+ * @return         HitRecord do objeto mais próximo, ou std::nullopt.
+ */
+inline std::optional<HitRecord> findClosestHit(const Ray& ray,
+                                               std::vector<ObjectData>& objects,
+                                               const MeshLookup& meshes) {
+    std::optional<HitRecord> closest;
+    double closestT = std::numeric_limits<double>::infinity();
+
+    for (ObjectData& candidate : objects) {
+        std::optional<HitRecord> hit = intersectHit(ray, candidate, meshes);
+        bool isCloser = hit.has_value() && hit->t < closestT;
+        if (isCloser) {
+            closestT = hit->t;
+            closest  = hit;
+        }
+    }
+    return closest;
 }
 
 #endif
