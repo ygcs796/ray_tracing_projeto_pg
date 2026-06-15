@@ -104,9 +104,10 @@ int main() {
         // backward = (lookfrom - lookat).normalize() = (0,0,-800).normalize() = (0,0,-1)
         check("camera_backward", approxV(cam.getBackward(), 0, 0, -1, 1e-9));
 
-        // right = backward × Vup, normalizado. (0,0,-1) × (0,1,0) = (1,0,0); .normalize() = (1,0,0)?
-        // Checagem: (0,0,-1) x (0,1,0) → (0*0 - (-1)*1, (-1)*0 - 0*0, 0*1 - 0*0) = (1, 0, 0).
-        check("camera_right", approxV(cam.getRight(), 1, 0, 0, 1e-9));
+        // Convenção das anotações da disciplina: U = Vup × W (e NÃO W × Vup).
+        // right = upVector × backward = (0,1,0) × (0,0,-1)
+        //       = (1*(-1) - 0*0, 0*0 - 0*(-1), 0*0 - 1*0) = (-1, 0, 0).
+        check("camera_right", approxV(cam.getRight(), -1, 0, 0, 1e-9));
 
         // up = right × backward = (1,0,0) × (0,0,-1) = (0*(-1)-0*0, 0*0-1*(-1), 1*0-0*0) = (0, 1, 0)
         check("camera_up", approxV(cam.getUp(), 0, 1, 0, 1e-9));
