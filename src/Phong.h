@@ -41,6 +41,7 @@
 #include <algorithm>
 #include <cmath>
 #include <optional>
+#include <random>
 
 #include "Ray.h"
 #include "Ponto.h"
@@ -69,53 +70,138 @@ struct RGB {
  *  ponto flutuante NÃO façam o raio reintersectar o próprio objeto. */
 constexpr double SHADOW_EPSILON = 1e-4;
 
+// ============================================================================
+// SOFT SHADOWS: fonte de luz extensa amostrada por N pontos
+// ============================================================================
+//
+// Uma luz PONTUAL produz sombra DURA — binária: o ponto vê a luz (iluminado) ou
+// não vê (sombra), sem meio-termo. Uma fonte EXTENSA (de área) produz PENUMBRA:
+// perto da borda da sombra, o ponto enxerga *parte* da fonte, ficando
+// parcialmente iluminado.
+//
+// Aproximamos a fonte por um quadrado de "raio" `radius` (meia-aresta) centrado
+// em `light.pos` e amostramos N pontos nela. A fração de amostras VISÍVEIS (não
+// bloqueadas por nenhum objeto) é o fator de visibilidade ∈ [0,1] que pondera a
+// contribuição difusa + especular daquela luz — é isso que gera a penumbra.
+//
+// `radius` vem por luz do JSON (campo extra "radius", lido de extraData).
+// Ausente ou ≤ 0 → luz pontual / sombra dura.
+
+/** Pontos por eixo na grade de amostragem da fonte. N = k² raios de sombra/luz.
+ *  Mais amostras = penumbra mais suave (menos "degraus"), porém mais lento. Só
+ *  custa tempo em luzes de área (radius > 0); luzes pontuais usam 1 raio. */
+constexpr int  SOFT_SHADOW_SAMPLES_PER_AXIS = 8;    // 8×8 = 64 amostras por luz
+
+/** true = amostras ALEATÓRIAS na fonte; false = grade IGUALMENTE
+ *  espaçada (determinística — padrão, sem ruído). */
+constexpr bool SOFT_SHADOW_RANDOM = false;
+
 /**
- * Verifica se o ponto `P` (com normal `N`) está em sombra em relação à fonte
- * `light`. Ou seja: existe algum objeto entre P e a luz?
+ * Existe algum objeto bloqueando o segmento de `P` (deslocado +ε·N anti-acne)
+ * até o ponto `target`? É o teste de sombra elementar, generalizado para um
+ * alvo qualquer — o centro da luz (sombra dura) ou uma amostra da fonte extensa.
  *
- * Algoritmo:
- *   1. Desloca a origem do raio de sombra ao longo de N: P_offset = P + ε·N.
- *      Sem isso, o raio frequentemente reintersecta o próprio objeto de onde
- *      saiu (auto-interseção numérica → "acne de sombra").
- *   2. Calcula a direção e a DISTÂNCIA até a luz a partir de P_offset.
- *      A distância é o nosso "tMax" — qualquer interseção com t além da luz
- *      está ATRÁS da luz e não bloqueia.
- *   3. Testa o raio contra todos os objetos. Se algum tem 0 < t < dist_luz,
- *      o ponto está em sombra para esta luz e retornamos true.
- *
- * @param P         Ponto da superfície sendo sombreado.
- * @param N         Normal unitária em P (já com o flip de orientação aplicado
- *                  pelo chamador, se necessário).
- * @param light     Fonte de luz pontual sendo testada.
- * @param objects   Lista de objetos da cena (esferas, planos, malhas).
- * @param meshes    Tabela de malhas pré-carregadas (passar mapa vazio se a
- *                  cena não tem malhas).
- * @return          true se existe um objeto bloqueando a luz; false caso
- *                  contrário.
+ * A distância até `target` é o "tMax": interseções com t além dela estão ATRÁS
+ * do alvo (ex.: atrás da luz) e não bloqueiam.
+ */
+inline bool occluded(const Ponto& P,
+                     const Vetor& N,
+                     const Ponto& target,
+                     std::vector<ObjectData>& objects,
+                     const MeshLookup& meshes) {
+    Ponto shadowOrigin = P + N * SHADOW_EPSILON;   // evita auto-interseção (acne)
+
+    Vetor toTarget       = target - shadowOrigin;
+    double distanceToTgt = toTarget.magnitude();
+    Ray shadowRay(shadowOrigin, toTarget.normalize());
+
+    for (ObjectData& candidate : objects) {
+        std::optional<double> tHit = intersect(shadowRay, candidate, meshes);
+        bool hitIsBetween = tHit.has_value() && *tHit > 0.0 && *tHit < distanceToTgt;
+        if (hitIsBetween) return true;
+    }
+    return false;
+}
+
+/**
+ * Verifica se o ponto `P` está em sombra dura em relação à luz PONTUAL `light`.
+ * Mantida para o caso pontual e para os testes; delega ao teste de oclusão até
+ * o centro da luz.
  */
 inline bool isInShadow(const Ponto& P,
                        const Vetor& N,
                        const LightData& light,
                        std::vector<ObjectData>& objects,
                        const MeshLookup& meshes) {
-    // Origem do raio de sombra deslocada ao longo da normal — evita acne.
-    Ponto shadowOrigin = P + N * SHADOW_EPSILON;
+    return occluded(P, N, light.pos, objects, meshes);
+}
 
-    // Vetor de P_offset até a luz. magnitude() é a distância "tMax" implícita:
-    // interseções com t além disso estão ATRÁS da luz e devem ser ignoradas.
-    Vetor toLight        = light.pos - shadowOrigin;
-    double distanceToLight = toLight.magnitude();
-    Vetor shadowDirection  = toLight.normalize();
+/** Raio (meia-aresta) da fonte extensa, lido do campo extra "radius" do JSON.
+ *  Ausente, inválido ou ≤ 0 → 0.0 (luz pontual / sombra dura). */
+inline double lightRadius(const LightData& light) {
+    auto it = light.extraData.find("radius");
+    if (it == light.extraData.end()) return 0.0;
+    try { return std::max(0.0, std::stod(it->second)); }
+    catch (...) { return 0.0; }
+}
 
-    Ray shadowRay(shadowOrigin, shadowDirection);
+/** Próximo pseudo-aleatório em [0,1). Determinístico (seed fixa) para builds
+ *  reproduzíveis; só usado quando SOFT_SHADOW_RANDOM == true. */
+inline double nextRandomUnit() {
+    static std::mt19937 generator(987654321u);
+    static std::uniform_real_distribution<double> dist(0.0, 1.0);
+    return dist(generator);
+}
 
-    for (ObjectData& candidate : objects) {
-        std::optional<double> tHit = intersect(shadowRay, candidate, meshes);
-        bool hitIsBetweenPointAndLight =
-            tHit.has_value() && *tHit > 0.0 && *tHit < distanceToLight;
-        if (hitIsBetweenPointAndLight) return true;
+/**
+ * Fração da fonte de luz visível a partir de `P` (com normal `N`), em [0,1].
+ *
+ *   - Luz pontual (radius ≤ 0): devolve 1.0 (vê a luz) ou 0.0 (bloqueada),
+ *     idêntico à sombra dura anterior.
+ *   - Fonte extensa (radius > 0): amostra N = k² pontos num quadrado HORIZONTAL
+ *     (plano xz) de meia-aresta `radius`, centrado em `light.pos` — modelo de
+ *     "luz de teto". Lança um raio de sombra para cada amostra; a razão
+ *     (visíveis / N) é a fração iluminada, que gera a penumbra. Manter o painel
+ *     no plano da luz evita amostras acima do teto (que dariam auto-sombra).
+ *
+ * As amostras são em grade igualmente espaçada (padrão) ou aleatórias, conforme
+ * SOFT_SHADOW_RANDOM.
+ */
+inline double lightVisibility(const Ponto& P,
+                              const Vetor& N,
+                              const LightData& light,
+                              std::vector<ObjectData>& objects,
+                              const MeshLookup& meshes) {
+    double radius = lightRadius(light);
+    if (radius <= 0.0) {
+        return occluded(P, N, light.pos, objects, meshes) ? 0.0 : 1.0;
     }
-    return false;
+
+    // Fonte modelada como um painel quadrado HORIZONTAL (plano xz) de meia-aresta
+    // `radius`, centrado em light.pos — o caso típico de "luz de teto". Manter o
+    // painel no plano da luz evita que amostras subam acima dela e atravessem o
+    // próprio teto, o que geraria auto-sombra espúria.
+    const Vetor uAxis(1, 0, 0);
+    const Vetor vAxis(0, 0, 1);
+
+    const int k = SOFT_SHADOW_SAMPLES_PER_AXIS;
+    int visibleSamples = 0;
+    for (int i = 0; i < k; ++i) {
+        for (int j = 0; j < k; ++j) {
+            double a, b;   // deslocamentos em [-radius, radius] ao longo de u, v
+            if (SOFT_SHADOW_RANDOM) {
+                a = (nextRandomUnit() * 2.0 - 1.0) * radius;
+                b = (nextRandomUnit() * 2.0 - 1.0) * radius;
+            } else {
+                // Centro da célula (i,j) da grade k×k mapeado para [-radius,radius].
+                a = ((i + 0.5) / k * 2.0 - 1.0) * radius;
+                b = ((j + 0.5) / k * 2.0 - 1.0) * radius;
+            }
+            Ponto sample = light.pos + uAxis * a + vAxis * b;
+            if (!occluded(P, N, sample, objects, meshes)) ++visibleSamples;
+        }
+    }
+    return static_cast<double>(visibleSamples) / static_cast<double>(k * k);
 }
 
 // ============================================================================
@@ -265,19 +351,24 @@ inline RGB computeColor(const HitRecord& hit,
     for (const LightData& light : scene.lightList) {
         const ColorData& IL = light.color;
 
-        // L = ponto -> luz. Unitário.
+        // L = ponto -> luz. Unitário. (Direção tomada do CENTRO da fonte: para
+        // fontes pequenas frente à cena, L quase não varia entre as amostras —
+        // o efeito de soft shadow vem da fração visível, não da variação de L.)
         Vetor L = (light.pos - P).normalize();
 
-        // Em sombra para esta luz: pula difusa + especular. Ambiente já foi
-        // somada acima e permanece.
-        if (isInShadow(P, N, light, objects, meshes)) continue;
+        // Soft shadows: fração da fonte visível ∈ [0,1]. 1 = totalmente
+        // iluminado; 0 = totalmente em sombra; intermediário = PENUMBRA. Para
+        // luz pontual (sem "radius") é exatamente 0 ou 1 — sombra dura de antes.
+        double visibility = lightVisibility(P, N, light, objects, meshes);
+        if (visibility <= 0.0) continue;   // totalmente em sombra: sem difusa/especular
 
         // Difusa (Lambert): max(L·N, 0). Se negativo, a luz vem por trás da
-        // superfície — clampamos a 0 para não subtrair iluminação.
+        // superfície — clampamos a 0 para não subtrair iluminação. Ponderada
+        // pela visibilidade (penumbra atenua a difusa proporcionalmente).
         double NdotL = std::max(N.dot(L), 0.0);
-        accumR += IL.r * mat.color.r * NdotL;
-        accumG += IL.g * mat.color.g * NdotL;
-        accumB += IL.b * mat.color.b * NdotL;
+        accumR += visibility * IL.r * mat.color.r * NdotL;
+        accumG += visibility * IL.g * mat.color.g * NdotL;
+        accumB += visibility * IL.b * mat.color.b * NdotL;
 
         // Reflexão R = 2(L·N)·N - L. Quando L está atrás da superfície (NdotL
         // foi clampado a 0), o brilho especular também deveria sumir; o
@@ -287,11 +378,11 @@ inline RGB computeColor(const HitRecord& hit,
 
         // Especular de Phong: max(R·V, 0)^η. η alto = brilho concentrado.
         // std::pow(0, η) = 0, ok para η > 0 (o caso η = 0 é degenerado e o
-        // monitor disse para tratar η > 0).
+        // monitor disse para tratar η > 0). Também ponderado pela visibilidade.
         double specularFactor = std::pow(RdotV, mat.ns);
-        accumR += IL.r * mat.ks.r * specularFactor;
-        accumG += IL.g * mat.ks.g * specularFactor;
-        accumB += IL.b * mat.ks.b * specularFactor;
+        accumR += visibility * IL.r * mat.ks.r * specularFactor;
+        accumG += visibility * IL.g * mat.ks.g * specularFactor;
+        accumB += visibility * IL.b * mat.ks.b * specularFactor;
     }
 
     // ======================================================================

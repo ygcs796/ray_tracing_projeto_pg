@@ -16,8 +16,8 @@
  * Base ortonormal calculada uma única vez no construtor. Os três vetores são
  * unitários e perpendiculares entre si — sistema de coordenadas próprio da câmera:
  *   backward = normalize(cameraPosition - targetPoint)   → "para trás" da câmera
- *   right    = normalize(backward × upVector)            → "para a direita"
- *   up       = right × backward                          → "para cima"
+ *   right    = normalize(upVector × backward)            → "para a direita"
+ *   up       = backward × right                          → "para cima"
  *
  */
 
