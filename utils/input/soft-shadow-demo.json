@@ -1,0 +1,66 @@
+{
+  "globalLight": [0.10, 0.10, 0.10],
+
+  "materials": {
+    "piso": {
+      "color": [0.80, 0.80, 0.80],
+      "ka": [0.12, 0.12, 0.12],
+      "ks": [0.0, 0.0, 0.0],
+      "ns": 10
+    },
+    "fundo": {
+      "color": [0.55, 0.60, 0.75],
+      "ka": [0.10, 0.11, 0.14],
+      "ks": [0.0, 0.0, 0.0],
+      "ns": 10
+    },
+    "bola": {
+      "color": [0.85, 0.25, 0.15],
+      "ka": [0.10, 0.04, 0.03],
+      "ks": [0.25, 0.25, 0.25],
+      "ns": 32
+    }
+  },
+
+  "camera": {
+    "lookfrom": [0, 260, -520],
+    "lookat": [0, 70, 250],
+    "upVector": [0, 1, 0],
+    "image_width": 400,
+    "image_height": 400,
+    "screen_distance": 1.5
+  },
+
+  "lights": [
+    {
+      "name": "Painel de Teto (fonte extensa)",
+      "position": [0, 650, 120],
+      "color": [1.0, 1.0, 1.0],
+      "radius": 120
+    }
+  ],
+
+  "objects": [
+    {
+      "name": "Piso",
+      "type": "plane",
+      "point_on_plane": [0, 0, 0],
+      "normal": [0, 1, 0],
+      "material": "piso"
+    },
+    {
+      "name": "Parede do Fundo",
+      "type": "plane",
+      "point_on_plane": [0, 0, 520],
+      "normal": [0, 0, -1],
+      "material": "fundo"
+    },
+    {
+      "name": "Esfera Flutuante",
+      "type": "sphere",
+      "center": [0, 190, 250],
+      "radius": 80,
+      "material": "bola"
+    }
+  ]
+}

@@ -1,0 +1,121 @@
+{
+  "globalLight": [0.1, 0.1, 0.1],
+  "materials": {
+    "chao":      { "color": [0.30, 0.30, 0.35], "ka": [0.30, 0.30, 0.35], "ks": [0,0,0], "ns": 10 },
+    "fundo":     { "color": [0.20, 0.45, 0.75], "ka": [0.20, 0.45, 0.75], "ks": [0,0,0], "ns": 10 },
+    "macaco":    { "color": [0.85, 0.55, 0.15], "ka": [0.85, 0.55, 0.15], "ks": [0,0,0], "ns": 10 },
+    "esticado":  { "color": [0.80, 0.20, 0.20], "ka": [0.80, 0.20, 0.20], "ks": [0,0,0], "ns": 10 },
+    "achatado":  { "color": [0.20, 0.80, 0.30], "ka": [0.20, 0.80, 0.30], "ks": [0,0,0], "ns": 10 },
+    "diamante":  { "color": [0.85, 0.85, 0.20], "ka": [0.85, 0.85, 0.20], "ks": [0,0,0], "ns": 10 },
+    "rotY":      { "color": [0.75, 0.20, 0.75], "ka": [0.75, 0.20, 0.75], "ks": [0,0,0], "ns": 10 },
+    "esfera_1":  { "color": [0.95, 0.95, 0.95], "ka": [0.95, 0.95, 0.95], "ks": [0,0,0], "ns": 10 },
+    "esfera_2":  { "color": [0.10, 0.20, 0.85], "ka": [0.10, 0.20, 0.85], "ks": [0,0,0], "ns": 10 },
+    "esfera_3":  { "color": [0.85, 0.10, 0.55], "ka": [0.85, 0.10, 0.55], "ks": [0,0,0], "ns": 10 },
+    "esfera_4":  { "color": [0.10, 0.85, 0.85], "ka": [0.10, 0.85, 0.85], "ks": [0,0,0], "ns": 10 },
+    "piramide":  { "color": [0.95, 0.55, 0.10], "ka": [0.95, 0.55, 0.10], "ks": [0,0,0], "ns": 10 },
+    "torre":     { "color": [0.50, 0.30, 0.85], "ka": [0.50, 0.30, 0.85], "ks": [0,0,0], "ns": 10 }
+  },
+  "camera": {
+    "lookfrom": [9, 5, 12],
+    "lookat":   [0, 1, 0],
+    "upVector": [0, 1, 0],
+    "image_width": 1200,
+    "image_height": 700,
+    "screen_distance": 1.5
+  },
+  "lights": [
+    { "name": "L1", "position": [10, 10, 10], "color": [1.0, 1.0, 1.0], "radius": 0.8 }
+  ],
+  "objects": [
+    { "name": "Chão",  "type": "plane", "point_on_plane": [0, -1.5, 0], "normal": [0, 1, 0], "material": "chao" },
+    { "name": "Fundo", "type": "plane", "point_on_plane": [0, 0, -10],  "normal": [0, 0, 1], "material": "fundo" },
+
+    {
+      "name": "Macaco rotacionado em Y (encara a câmera)",
+      "type": "mesh", "path": "utils/input/monkey.obj", "material": "macaco",
+      "transform": [
+        { "type": "rotation",    "angle":  [0, 0.5, 0] },
+        { "type": "translation", "vector": [0, 1.2, 0] }
+      ]
+    },
+
+    {
+      "name": "Cubo achatado em Y (escala não-uniforme)",
+      "type": "mesh", "path": "utils/input/cubo.obj", "material": "achatado",
+      "transform": [
+        { "type": "scaling",     "factors": [1.5, 0.25, 1.5] },
+        { "type": "translation", "vector":  [-3, -1.0, 0] }
+      ]
+    },
+
+    {
+      "name": "Cubo esticado em X (escala não-uniforme)",
+      "type": "mesh", "path": "utils/input/cubo.obj", "material": "esticado",
+      "transform": [
+        { "type": "scaling",     "factors": [2.5, 0.4, 0.4] },
+        { "type": "translation", "vector":  [3, -1.1, 0] }
+      ]
+    },
+
+    {
+      "name": "Cubo diamante (rotação 45° X+Z, escala 1.2x)",
+      "type": "mesh", "path": "utils/input/cubo.obj", "material": "diamante",
+      "transform": [
+        { "type": "scaling",     "factors": [1.2, 1.2, 1.2] },
+        { "type": "rotation",    "angle":   [0.7854, 0, 0.7854] },
+        { "type": "translation", "vector":  [-5, 1.5, -3] }
+      ]
+    },
+
+    {
+      "name": "Pirâmide rotacionada em Y",
+      "type": "mesh", "path": "utils/input/piramide.obj", "material": "piramide",
+      "transform": [
+        { "type": "scaling",     "factors": [0.8, 0.8, 0.8] },
+        { "type": "rotation",    "angle":   [0, 0.6, 0] },
+        { "type": "translation", "vector":  [5, -1.2, -2] }
+      ]
+    },
+
+    {
+      "name": "Cubo rotacionado em Y (composição R+T)",
+      "type": "mesh", "path": "utils/input/cubo.obj", "material": "rotY",
+      "transform": [
+        { "type": "scaling",     "factors": [0.5, 0.5, 0.5] },
+        { "type": "rotation",    "angle":   [0, 0.7854, 0] },
+        { "type": "translation", "vector":  [0, 2.5, -4] }
+      ]
+    },
+
+    {
+      "name": "Torre de 3 cubos empilhados",
+      "type": "mesh", "path": "utils/input/cubo.obj", "material": "torre",
+      "transform": [
+        { "type": "scaling",     "factors": [0.4, 0.4, 0.4] },
+        { "type": "translation", "vector":  [-7, -1.0, -1] }
+      ]
+    },
+    {
+      "name": "Torre 2",
+      "type": "mesh", "path": "utils/input/cubo.obj", "material": "torre",
+      "transform": [
+        { "type": "scaling",     "factors": [0.3, 0.3, 0.3] },
+        { "type": "translation", "vector":  [-7, -0.2, -1] }
+      ]
+    },
+    {
+      "name": "Torre 3 (topo, rotacionada)",
+      "type": "mesh", "path": "utils/input/cubo.obj", "material": "torre",
+      "transform": [
+        { "type": "scaling",     "factors": [0.2, 0.2, 0.2] },
+        { "type": "rotation",    "angle":   [0, 0.7854, 0] },
+        { "type": "translation", "vector":  [-7, 0.4, -1] }
+      ]
+    },
+
+    { "name": "Esfera branca",  "type": "sphere", "center": [-1.5, -0.8, 2],  "radius": 0.7, "material": "esfera_1" },
+    { "name": "Esfera azul",    "type": "sphere", "center": [1.5, -0.8, 2],   "radius": 0.7, "material": "esfera_2" },
+    { "name": "Esfera magenta", "type": "sphere", "center": [-3.5, -1.0, 2.5], "radius": 0.5, "material": "esfera_3" },
+    { "name": "Esfera ciano",   "type": "sphere", "center": [3.5, -1.0, 2.5], "radius": 0.5, "material": "esfera_4" }
+  ]
+}

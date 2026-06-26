@@ -1,0 +1,46 @@
+{
+  "globalLight": [0.1, 0.1, 0.1],
+  "materials": {
+    "chao":     { "color": [0.55, 0.45, 0.30], "ka": [0.55, 0.45, 0.30], "ks": [0,0,0], "ns": 10 },
+    "fundo":    { "color": [0.30, 0.55, 0.85], "ka": [0.30, 0.55, 0.85], "ks": [0,0,0], "ns": 10 },
+    "macaco":   { "color": [0.75, 0.55, 0.20], "ka": [0.75, 0.55, 0.20], "ks": [0,0,0], "ns": 10 },
+    "cubo":     { "color": [0.20, 0.75, 0.30], "ka": [0.20, 0.75, 0.30], "ks": [0,0,0], "ns": 10 }
+  },
+  "camera": {
+    "lookfrom": [0, 1.5, 5],
+    "lookat":   [0, 0.5, 0],
+    "upVector": [0, 1, 0],
+    "image_width": 800,
+    "image_height": 600,
+    "screen_distance": 1.5
+  },
+  "lights": [{ "name": "L", "position": [5, 8, 5], "color": [1,1,1], "radius": 0.8 }],
+  "objects": [
+    { "name": "Chão",  "type": "plane", "point_on_plane": [0, -1.5, 0],   "normal": [0, 1, 0],  "material": "chao" },
+    { "name": "Fundo", "type": "plane", "point_on_plane": [0, 0, -8],     "normal": [0, 0, 1],  "material": "fundo" },
+    {
+      "name": "Macaco centralizado, rotacionado para encarar a câmera",
+      "type": "mesh", "path": "utils/input/monkey.obj", "material": "macaco",
+      "transform": [
+        { "type": "rotation",    "angle":  [0, 0, 0] },
+        { "type": "translation", "vector": [0, 0.5, 0] }
+      ]
+    },
+    {
+      "name": "Cubo de apoio à esquerda",
+      "type": "mesh", "path": "utils/input/cubo.obj", "material": "cubo",
+      "transform": [
+        { "type": "scaling",     "factors": [0.5, 0.5, 0.5] },
+        { "type": "translation", "vector": [-2, -1, 0] }
+      ]
+    },
+    {
+      "name": "Cubo de apoio à direita",
+      "type": "mesh", "path": "utils/input/cubo.obj", "material": "cubo",
+      "transform": [
+        { "type": "scaling",     "factors": [0.5, 0.5, 0.5] },
+        { "type": "translation", "vector": [2, -1, 0] }
+      ]
+    }
+  ]
+}
