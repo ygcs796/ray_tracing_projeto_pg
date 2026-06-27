@@ -1,0 +1,71 @@
+{
+  "globalLight": [0.08, 0.08, 0.08],
+
+  "materials": {
+    "piso": {
+      "color": [0.85, 0.85, 0.85],
+      "ka": [0.10, 0.10, 0.10],
+      "ks": [0.0, 0.0, 0.0],
+      "ns": 10
+    },
+    "fundo": {
+      "color": [0.50, 0.55, 0.70],
+      "ka": [0.12, 0.13, 0.16],
+      "ks": [0.0, 0.0, 0.0],
+      "ns": 10
+    },
+    "bola": {
+      "color": [0.90, 0.35, 0.20],
+      "ka": [0.12, 0.05, 0.03],
+      "ks": [0.25, 0.25, 0.25],
+      "ns": 32
+    }
+  },
+
+  "camera": {
+    "lookfrom": [0, 320, -650],
+    "lookat": [40, 40, 160],
+    "upVector": [0, 1, 0],
+    "image_width": 400,
+    "image_height": 400,
+    "screen_distance": 1.5
+  },
+
+  "lights": [
+    {
+      "name": "Sol pela Janela (raios paralelos)",
+      "position": [0, 520, 120],
+      "color": [1.0, 1.0, 1.0],
+      "kind": "parallel",
+      "dir_x": 0.22,
+      "dir_y": -1.0,
+      "dir_z": 0.12,
+      "width": 240,
+      "height": 240
+    }
+  ],
+
+  "objects": [
+    {
+      "name": "Piso",
+      "type": "plane",
+      "point_on_plane": [0, 0, 0],
+      "normal": [0, 1, 0],
+      "material": "piso"
+    },
+    {
+      "name": "Parede do Fundo",
+      "type": "plane",
+      "point_on_plane": [0, 0, 420],
+      "normal": [0, 0, -1],
+      "material": "fundo"
+    },
+    {
+      "name": "Esfera no Feixe",
+      "type": "sphere",
+      "center": [0, 140, 120],
+      "radius": 55,
+      "material": "bola"
+    }
+  ]
+}

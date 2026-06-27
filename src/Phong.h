@@ -119,6 +119,90 @@ inline bool isInShadow(const Ponto& P,
 }
 
 // ============================================================================
+// LUZ DE RAIOS PARALELOS (feature extra): retângulo com raios de direção fixa
+// ============================================================================
+//
+// Modela "luz do sol entrando por uma janela aberta": um RETÂNGULO (a janela) de
+// onde partem raios TODOS NA MESMA DIREÇÃO `d` (predefinida). Diferente de uma
+// fonte pontual ou de área (cujos raios divergem/variam por ponto), aqui a
+// direção é constante — é uma luz DIRECIONAL (como o Sol) RECORTADA por uma
+// abertura retangular, formando um "feixe" (shaft) de seção retangular.
+//
+// Um ponto P recebe luz desta fonte se, e somente se:
+//   (1) está "rio abaixo" do retângulo na direção d (a luz chega até ele);
+//   (2) o raio que o atinge passou DENTRO do retângulo (senão está fora do feixe);
+//   (3) nada bloqueia o segmento de P até a janela (sombra DURA do feixe).
+// Quando iluminado, a direção P->luz é L = -d, IGUAL para todos os pontos.
+//
+// Parâmetros lidos por luz do JSON (campos extras escalares — sem mexer no parser;
+// o centro do retângulo é o `position` nativo da luz):
+//   "kind": "parallel"        marca a luz como deste tipo
+//   "dir_x","dir_y","dir_z"   direção de propagação d (default (0,-1,0): p/ baixo)
+//   "width","height"          dimensões do retângulo (default 100). O retângulo é
+//                             centrado em `position` e perpendicular a d.
+
+/** A luz é uma fonte retangular de raios paralelos? (campo extra kind="parallel") */
+inline bool isParallelLight(const LightData& light) {
+    auto it = light.extraData.find("kind");
+    return it != light.extraData.end() && it->second == "parallel";
+}
+
+/** Lê um escalar de extraData (string→double) com default se ausente/inválido. */
+inline double lightScalar(const LightData& light, const std::string& key, double fallback) {
+    auto it = light.extraData.find(key);
+    if (it == light.extraData.end()) return fallback;
+    try { return std::stod(it->second); } catch (...) { return fallback; }
+}
+
+/**
+ * Decide se a luz de raios paralelos `light` ilumina o ponto `P` (de normal `N`):
+ * P precisa estar DENTRO do feixe retangular E sem oclusão até a janela. Em caso
+ * afirmativo devolve true e escreve em `outL` a direção P->luz (= -d, constante).
+ */
+inline bool parallelLightReaches(const Ponto& P,
+                                 const Vetor& N,
+                                 const LightData& light,
+                                 std::vector<ObjectData>& objects,
+                                 const MeshLookup& meshes,
+                                 Vetor& outL) {
+    // Direção de propagação d (normalizada). L = -d aponta de P para a fonte.
+    Vetor d = Vetor(lightScalar(light, "dir_x",  0.0),
+                    lightScalar(light, "dir_y", -1.0),
+                    lightScalar(light, "dir_z",  0.0)).normalize();
+    outL = -d;
+
+    double halfWidth  = 0.5 * lightScalar(light, "width",  100.0);
+    double halfHeight = 0.5 * lightScalar(light, "height", 100.0);
+
+    // Base ortonormal (u, v) do plano do retângulo, perpendicular a d.
+    Vetor helper = (std::abs(d.getX()) < 0.9) ? Vetor(1, 0, 0) : Vetor(0, 1, 0);
+    Vetor u = helper.cross(d).normalize();
+    Vetor v = d.cross(u);   // unitário (d ⊥ u, ambos unitários)
+
+    // Distância s de P até o plano da janela, medida ao longo de d:
+    //   s = (P - centro)·d.  s > 0 → P está rio ABAIXO da janela (a luz o alcança).
+    double s = (P - light.pos).dot(d);
+    if (s <= 0.0) return false;   // P está no plano da janela ou atrás dela
+
+    // A = ponto onde o raio que atinge P cruza o plano da janela (A = P - s·d).
+    // Projetamos (A - centro) na base (u, v): dentro ⇔ |a| ≤ halfW e |b| ≤ halfH.
+    Ponto A = P - d * s;
+    Vetor centerToA = A - light.pos;
+    if (std::abs(centerToA.dot(u)) > halfWidth)  return false;  // fora do feixe (horizontal)
+    if (std::abs(centerToA.dot(v)) > halfHeight) return false;  // fora do feixe (vertical)
+
+    // Oclusão (sombra dura): algo entre P (+ε·N anti-acne) e a janela bloqueia o
+    // feixe? tMax = s (a própria janela é a fonte; nada além dela bloqueia).
+    Ponto shadowOrigin = P + N * SHADOW_EPSILON;
+    Ray shadowRay(shadowOrigin, outL);
+    for (ObjectData& candidate : objects) {
+        std::optional<double> tHit = intersect(shadowRay, candidate, meshes);
+        if (tHit.has_value() && *tHit > 0.0 && *tHit < s) return false;  // bloqueado
+    }
+    return true;   // dentro do feixe e iluminado
+}
+
+// ============================================================================
 // RAIOS SECUNDÁRIOS (Entrega 4): direções de reflexão e refração
 // ============================================================================
 
@@ -261,16 +345,21 @@ inline RGB computeColor(const HitRecord& hit,
     double accumG = mat.ka.g * Ia.g;
     double accumB = mat.ka.b * Ia.b;
 
-    // ---------- Somatório sobre cada luz pontual --------------------------
+    // ---------- Somatório sobre cada luz (pontual ou de raios paralelos) ---
     for (const LightData& light : scene.lightList) {
         const ColorData& IL = light.color;
 
-        // L = ponto -> luz. Unitário.
-        Vetor L = (light.pos - P).normalize();
-
-        // Em sombra para esta luz: pula difusa + especular. Ambiente já foi
-        // somada acima e permanece.
-        if (isInShadow(P, N, light, objects, meshes)) continue;
+        // Direção P->luz (L) e teste de visibilidade, conforme o TIPO da luz:
+        //   - parallel: feixe retangular de raios paralelos (L = -d, constante);
+        //     pula se P está fora do feixe ou ocluído até a janela.
+        //   - pontual : luz pontual normal (L = P->pos); pula se em sombra dura.
+        Vetor L;
+        if (isParallelLight(light)) {
+            if (!parallelLightReaches(P, N, light, objects, meshes, L)) continue;
+        } else {
+            L = (light.pos - P).normalize();
+            if (isInShadow(P, N, light, objects, meshes)) continue;
+        }
 
         // Difusa (Lambert): max(L·N, 0). Se negativo, a luz vem por trás da
         // superfície — clampamos a 0 para não subtrair iluminação.
